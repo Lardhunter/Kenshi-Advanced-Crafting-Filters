@@ -23,7 +23,7 @@ A Kenshi crafting and research plugin with text search, a floating filter panel,
          mod-config.json
    ```
 
-4. In the Kenshi launcher's **Mods** list, disable **Organize the Crafting Stations** and any earlier test copy of this plugin, such as **Phase3** or **Version4**. Disable a Workshop copy of the original plugin in the same way if it appears there. Enable **Kenshi-Advanced-Crafting-Filters** and start Kenshi normally.
+Important: Disable or uninstall the original Organize the Crafting Stations plugin before installing Kenshi Advanced Crafting Filters. Running both plugins simultaneously may cause conflicts.
 
 ## Using the filters
 
@@ -48,7 +48,7 @@ Some UI replacements can leave only text search available. Weapon damage modes a
 ## Troubleshooting
 
 - **The panel is missing.** Check that RE_Kenshi appears on the main menu and the release is checked in the launcher. Verify the folder structure above, close any modal dialog, and select a crafting station. **Ctrl+Shift+F8** toggles the filter controls.
-- **Duplicate panels or a load conflict.** Enable just one copy of the crafting plugin in the launcher. Check for the original mod, a Workshop copy, and older test copies.
+- **Duplicate panels or a load conflict. Ensure only Kenshi Advanced Crafting Filters is enabled. Disable the original Organize the Crafting Stations mod or any other plugin that modifies the same crafting interface.
 - **A stat is unavailable.** Compare the recipe description and check that the station has the relevant equipment. To show every recipe again, clear the text, choose **All Recipes** and **Any Body Part**, and select **Original Order**.
 - **The plugin fails to load.** Check `RE_Kenshi_log.txt` in the Kenshi installation for the plugin load result. Verify that the installer supplied KenshiLib and that the x64 Visual C++ 2010 runtime is installed. For recipe binding diagnostics, temporarily set `debugLogging` and `debugBindingLogging` to `true` in this mod's `mod-config.json` and press **Ctrl+Shift+F9** with Crafting open.
 
