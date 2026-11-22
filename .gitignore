@@ -6,6 +6,7 @@
 *.sdf
 *.opensdf
 *.VC.db
+*.vcxproj.bak
 .idea
 
 # Build outputs
