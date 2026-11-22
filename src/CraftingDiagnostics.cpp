@@ -2,6 +2,7 @@
 
 #include "CraftingCore.h"
 #include "CraftingInventoryBinding.h"
+#include "CraftingRecipes.h"
 #include "CraftingSearchPipeline.h"
 #include "CraftingSearchText.h"
 #include "CraftingSearchUi.h"
@@ -211,6 +212,36 @@ void CollectCraftingRowScanCandidatesRecursive(
             depth + 1,
             maxDepth,
             outCandidates);
+    }
+}
+
+void LogCraftingRecipeBindings(MyGUI::Widget* widget, std::size_t& buttons, std::size_t& bound)
+{
+    if (widget->isUserString(kCraftingRecipeButtonKey))
+    {
+        ++buttons;
+        CraftingRecipeCategory category;
+        const bool matched = TryGetCraftingRecipeCategory(widget, category);
+        if (matched)
+        {
+            ++bound;
+        }
+        if (buttons <= 8)
+        {
+            std::stringstream line;
+            line << "craft_search.recipe_binding"
+                 << " id=" << widget->getUserString("id")
+                 << " id2=" << widget->getUserString("id2")
+                 << " matched=" << matched
+                 << " weapon_class=" << category.weaponClass
+                 << " armor_slot=" << category.armorSlot
+                 << " armor_class=" << category.armorClass;
+            LogWarnLine(line.str());
+        }
+    }
+    for (std::size_t i = 0, count = widget->getChildCount(); i < count; ++i)
+    {
+        LogCraftingRecipeBindings(widget->getChildAt(i), buttons, bound);
     }
 }
 
@@ -505,6 +536,18 @@ void DumpOnDemandCraftingDiagnosticsSnapshot(MyGUI::Widget* craftingAnchor, MyGU
     if (queueItemsPanel != 0 && queueItemsPanel != probeRoot && queueItemsPanel != stationsList)
     {
         DumpWidgetSubtreeDiagnostics("craft_search.widget_probe_items", queueItemsPanel);
+    }
+    if (queueItemsPanel != 0)
+    {
+        std::size_t buttons = 0;
+        std::size_t bound = 0;
+        LogCraftingRecipeBindings(queueItemsPanel, buttons, bound);
+        std::stringstream recipeSummary;
+        recipeSummary << "craft_search.recipe_summary"
+                      << " buttons=" << buttons
+                      << " bound=" << bound
+                      << " station_recipes=" << GetAvailableCraftingRecipeCount();
+        LogWarnLine(recipeSummary.str());
     }
     if (craftQueue != 0 && craftQueue != probeRoot && craftQueue != queueItemsPanel && craftQueue != stationsList)
     {

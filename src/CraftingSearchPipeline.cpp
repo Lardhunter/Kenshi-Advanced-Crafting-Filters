@@ -2,15 +2,18 @@
 
 #include "CraftingCore.h"
 #include "CraftingInventoryBinding.h"
+#include "CraftingRecipes.h"
 #include "CraftingSearchText.h"
 #include "CraftingSearchUi.h"
 #include "CraftingWindowDetection.h"
 
+#include <mygui/MyGUI_InputManager.h>
 #include <mygui/MyGUI_TextBox.h>
 #include <mygui/MyGUI_Widget.h>
 
 #include <algorithm>
 #include <cctype>
+#include <map>
 #include <sstream>
 #include <vector>
 
@@ -31,20 +34,115 @@
 namespace
 {
 const char* kCraftingOriginalCoordUserStringKey = "OTT_CraftingOrigCoord";
+const char* kCraftingOriginalVisibilityKey = "OTCS_CraftingOrigVisible";
+const char* kCraftingPreviewObserverKey = "OTCS_PreviewObserver";
+const char* kCraftingPreviewOwnerKey = "OTCS_PreviewOwner";
+const char* kCraftingPreviewVisibleKey = "OTCS_PreviewOrigVisible";
+const char* kCraftingDescriptionPanels[] = { "QueueDescriptionPanel1", "QueueDescriptionPanel2" };
+
+MyGUI::Widget* g_observedCraftingRecipesPanel = 0;
+unsigned long long g_observedCraftingRecipeRevision = 0;
 
 struct CraftingRecipeWidget
 {
+    CraftingRecipeWidget() : widget(0), originallyVisible(true) {}
+
     MyGUI::Widget* widget;
     MyGUI::IntCoord originalCoord;
     std::string normalizedText;
+    bool originallyVisible;
 };
 
 struct CraftingRecipeRowGroup
 {
+    CraftingRecipeRowGroup() : originalTop(0), recipeButton(0), originallyVisible(false), recipeBound(false) {}
+
     int originalTop;
     std::vector<CraftingRecipeWidget> widgets;
     std::string normalizedText;
+    MyGUI::Widget* recipeButton;
+    CraftingRecipeCategory category;
+    bool originallyVisible;
+    bool recipeBound;
 };
+
+bool CompareCraftingRowPosition(const CraftingRecipeRowGroup& left, const CraftingRecipeRowGroup& right)
+{
+    return left.originalTop < right.originalTop;
+}
+
+MyGUI::Widget* FindCraftingTab(MyGUI::Widget* widget)
+{
+    for (; widget != 0; widget = widget->getParent())
+    {
+        if (ContainsAsciiCaseInsensitive(widget->getName(), "CraftTab"))
+        {
+            return widget;
+        }
+    }
+    return 0;
+}
+
+void TagRecipeDescription(MyGUI::Widget* widget, const std::string& owner)
+{
+    if (widget->castType<MyGUI::TextBox>(false) != 0)
+    {
+        widget->setUserString(kCraftingPreviewOwnerKey, owner);
+        widget->setUserString(kCraftingPreviewVisibleKey, widget->getVisible() ? "1" : "0");
+    }
+    for (std::size_t i = 0; i < widget->getChildCount(); ++i)
+    {
+        TagRecipeDescription(widget->getChildAt(i), owner);
+    }
+}
+
+void OnNativeRecipePreview(MyGUI::Widget* button, int, int)
+{
+    if (!button->getInheritedVisible() || button->getUserString("id").empty())
+    {
+        return;
+    }
+    MyGUI::Widget* tab = FindCraftingTab(button);
+    if (tab == 0)
+    {
+        return;
+    }
+
+    // Kenshi's earlier mouse-move delegate rebuilds these two data panels.
+    // Mark the generated text widgets so newly created queue descriptions keep native visibility.
+    const std::string& owner = button->getUserString(kCraftingRecipeLineKey);
+    for (std::size_t i = 0; i < sizeof(kCraftingDescriptionPanels) / sizeof(kCraftingDescriptionPanels[0]); ++i)
+    {
+        MyGUI::Widget* panel = FindNamedDescendantByTokenRecursive(tab, kCraftingDescriptionPanels[i], false);
+        if (panel != 0)
+        {
+            TagRecipeDescription(panel, owner);
+        }
+    }
+}
+
+void RestoreOrHideRecipeDescription(MyGUI::Widget* widget,
+    const std::vector<CraftingRecipeRowGroup>& rows, const std::vector<bool>& visible)
+{
+    const std::string& owner = widget->getUserString(kCraftingPreviewOwnerKey);
+    if (!owner.empty())
+    {
+        bool show = false;
+        for (std::size_t i = 0; i < rows.size(); ++i)
+        {
+            if (rows[i].recipeButton->getUserString(kCraftingRecipeLineKey) == owner)
+            {
+                show = visible[i];
+                break;
+            }
+        }
+        widget->setVisible(show && widget->getUserString(kCraftingPreviewVisibleKey) == "1");
+    }
+    for (std::size_t i = 0; i < widget->getChildCount(); ++i)
+    {
+        RestoreOrHideRecipeDescription(widget->getChildAt(i), rows, visible);
+    }
+}
 
 std::string SerializeCraftingCoord(const MyGUI::IntCoord& coord)
 {
@@ -210,6 +308,107 @@ bool GroupContainsWidget(const CraftingRecipeRowGroup& group, MyGUI::Widget* wid
     return false;
 }
 
+void RemoveNestedCraftingWidgets(CraftingRecipeRowGroup& group, MyGUI::Widget* entriesRoot)
+{
+    std::vector<CraftingRecipeWidget> topLevelWidgets;
+    topLevelWidgets.reserve(group.widgets.size());
+    for (std::size_t i = 0; i < group.widgets.size(); ++i)
+    {
+        const CraftingRecipeWidget& candidate = group.widgets[i];
+        MyGUI::Widget* parent = candidate.widget->getParent();
+        while (parent != 0 && parent != entriesRoot && !GroupContainsWidget(group, parent))
+        {
+            parent = parent->getParent();
+        }
+        if (parent == 0 || parent == entriesRoot)
+        {
+            topLevelWidgets.push_back(candidate);
+        }
+    }
+    group.widgets.swap(topLevelWidgets);
+}
+
+typedef std::map<std::string, CraftingRecipeRowGroup> NativeCraftingRows;
+
+void CollectNativeCraftingRows(MyGUI::Widget* widget, NativeCraftingRows& groups)
+{
+    const std::string& lineId = widget->getUserString(kCraftingRecipeLineKey);
+    if (!lineId.empty())
+    {
+        CraftingRecipeWidget entry;
+        entry.widget = widget;
+        const bool hadOriginalCoord = TryGetStoredCraftingOriginalCoord(widget, &entry.originalCoord);
+        if (!widget->isUserString(kCraftingOriginalVisibilityKey))
+        {
+            widget->setUserString(kCraftingOriginalVisibilityKey, (hadOriginalCoord || widget->getVisible()) ? "1" : "0");
+        }
+        if (!hadOriginalCoord)
+        {
+            entry.originalCoord = RememberCraftingOriginalCoord(widget);
+        }
+        entry.originallyVisible = widget->getUserString(kCraftingOriginalVisibilityKey) == "1";
+
+        CraftingRecipeRowGroup& group = groups[lineId];
+        group.widgets.push_back(entry);
+        group.originallyVisible = group.originallyVisible || entry.originallyVisible;
+        if (widget->castType<MyGUI::TextBox>(false) != 0)
+        {
+            const std::string caption = NormalizeCraftingRecipeCaption(WidgetCaptionForLog(widget));
+            if (caption.size() > group.normalizedText.size())
+            {
+                group.normalizedText = caption;
+            }
+        }
+        if (widget->isUserString(kCraftingRecipeButtonKey))
+        {
+            group.recipeButton = widget;
+            group.originalTop = entry.originalCoord.top;
+            group.recipeBound = TryGetCraftingRecipeCategory(widget, group.category);
+            if (!widget->isUserString(kCraftingPreviewObserverKey))
+            {
+                widget->eventMouseMove += MyGUI::newDelegate(&OnNativeRecipePreview);
+                widget->setUserString(kCraftingPreviewObserverKey, "1");
+            }
+        }
+    }
+
+    for (std::size_t i = 0, count = widget->getChildCount(); i < count; ++i)
+    {
+        CollectNativeCraftingRows(widget->getChildAt(i), groups);
+    }
+}
+
+bool BuildNativeCraftingRecipeRowGroups(
+    MyGUI::Widget* entriesRoot,
+    std::vector<CraftingRecipeRowGroup>& groups,
+    std::size_t& trackedWidgetCount)
+{
+    NativeCraftingRows nativeRows;
+    CollectNativeCraftingRows(entriesRoot, nativeRows);
+    MyGUI::Widget* rowParent = 0;
+    for (NativeCraftingRows::iterator it = nativeRows.begin(); it != nativeRows.end(); ++it)
+    {
+        CraftingRecipeRowGroup& row = it->second;
+        if (row.recipeButton == 0)
+        {
+            continue;
+        }
+        MyGUI::Widget* parent = row.recipeButton->getParent();
+        if (rowParent != 0 && parent != rowParent)
+        {
+            // Their coordinates are in different spaces. Use the existing text-only path.
+            return false;
+        }
+        rowParent = parent;
+        RemoveNestedCraftingWidgets(row, entriesRoot);
+        trackedWidgetCount += row.widgets.size();
+        groups.push_back(row);
+    }
+
+    std::stable_sort(groups.begin(), groups.end(), CompareCraftingRowPosition);
+    return !groups.empty();
+}
+
 int ResolveCraftingRowIndex(const std::vector<int>& rowTops, int centerY)
 {
     if (rowTops.empty())
@@ -296,14 +495,6 @@ bool BuildCraftingRecipeRowGroups(
     }
     const int maxTrackedHeight = rowPitch * 2;
 
-    struct CraftingRecipeRowGroupLess
-    {
-        bool operator()(const CraftingRecipeRowGroup& left, const CraftingRecipeRowGroup& right) const
-        {
-            return left.originalTop < right.originalTop;
-        }
-    };
-
     for (std::size_t index = 0; index < rowTops.size(); ++index)
     {
         CraftingRecipeRowGroup group;
@@ -337,33 +528,10 @@ bool BuildCraftingRecipeRowGroups(
 
     for (std::size_t groupIndex = 0; groupIndex < outGroups->size(); ++groupIndex)
     {
-        CraftingRecipeRowGroup& group = (*outGroups)[groupIndex];
-        std::vector<CraftingRecipeWidget> topLevelWidgets;
-        topLevelWidgets.reserve(group.widgets.size());
-        for (std::size_t widgetIndex = 0; widgetIndex < group.widgets.size(); ++widgetIndex)
-        {
-            const CraftingRecipeWidget& candidate = group.widgets[widgetIndex];
-            bool hasTrackedAncestor = false;
-            MyGUI::Widget* current = candidate.widget == 0 ? 0 : candidate.widget->getParent();
-            while (current != 0 && current != entriesRoot)
-            {
-                if (GroupContainsWidget(group, current))
-                {
-                    hasTrackedAncestor = true;
-                    break;
-                }
-                current = current->getParent();
-            }
-
-            if (!hasTrackedAncestor)
-            {
-                topLevelWidgets.push_back(candidate);
-            }
-        }
-        group.widgets.swap(topLevelWidgets);
+        RemoveNestedCraftingWidgets((*outGroups)[groupIndex], entriesRoot);
     }
 
-    std::sort(outGroups->begin(), outGroups->end(), CraftingRecipeRowGroupLess());
+    std::sort(outGroups->begin(), outGroups->end(), CompareCraftingRowPosition);
     return !outGroups->empty();
 }
 
@@ -381,7 +549,7 @@ MyGUI::Widget* ResolveVisibleCraftingSearchEntriesRoot(MyGUI::Widget* craftingPa
 
     const char* preferredTokens[] =
     {
-        "QueueItemsPanel",
+        kCraftingRecipesPanelName,
         "BlueprintsAvailablePanel",
         "CraftingStationsList",
         "ResearchQueuePanel"
@@ -422,7 +590,23 @@ MyGUI::Widget* ResolveVisibleCraftingSearchEntriesRoot(MyGUI::Widget* craftingPa
     return fallback;
 }
 
-bool ApplySearchFilterToCraftingParent(MyGUI::Widget* craftingParent, bool forceShowAll, bool logSummary)
+void RestoreNativeCraftingRows(MyGUI::Widget* widget)
+{
+    MyGUI::IntCoord originalCoord;
+    if (widget->isUserString(kCraftingOriginalVisibilityKey)
+        && TryGetStoredCraftingOriginalCoord(widget, &originalCoord))
+    {
+        widget->setPosition(widget->getLeft(), originalCoord.top);
+        widget->setVisible(widget->getUserString(kCraftingOriginalVisibilityKey) == "1");
+    }
+    for (std::size_t i = 0, count = widget->getChildCount(); i < count; ++i)
+    {
+        RestoreNativeCraftingRows(widget->getChildAt(i));
+    }
+}
+
+bool ApplySearchFilterToCraftingParent(
+    MyGUI::Widget* craftingParent, MyGUI::Widget* recipePanel, bool forceShowAll, bool logSummary)
 {
     if (craftingParent == 0)
     {
@@ -431,65 +615,166 @@ bool ApplySearchFilterToCraftingParent(MyGUI::Widget* craftingParent, bool force
 
     const char* entriesRootToken = 0;
     MyGUI::Widget* entriesRoot = ResolveVisibleCraftingSearchEntriesRoot(craftingParent, &entriesRootToken);
+    if (forceShowAll && recipePanel != entriesRoot)
+    {
+        RestoreNativeCraftingRows(recipePanel);
+    }
     if (entriesRoot == 0)
     {
+        UpdateCraftingCategoryControls(CraftingRecipeCategories(), false);
         UpdateSearchCountText(0, 0, 0);
         return false;
     }
 
     std::vector<CraftingRecipeRowGroup> rowGroups;
     std::size_t trackedWidgetCount = 0;
-    if (!BuildCraftingRecipeRowGroups(entriesRoot, &rowGroups, &trackedWidgetCount))
+    const bool nativeRows = entriesRoot == recipePanel && (forceShowAll || recipePanel->getInheritedVisible())
+        && BuildNativeCraftingRecipeRowGroups(entriesRoot, rowGroups, trackedWidgetCount);
+    if (!nativeRows && !BuildCraftingRecipeRowGroups(entriesRoot, &rowGroups, &trackedWidgetCount))
     {
+        UpdateCraftingCategoryControls(CraftingRecipeCategories(), false);
         UpdateSearchCountText(0, 0, 0);
         return false;
     }
 
+    CraftingRecipeCategories categories;
+    CraftingCoveragePartOptions coverageParts;
+    std::size_t boundRows = 0;
+    if (nativeRows && !forceShowAll)
+    {
+        for (std::size_t i = 0; i < rowGroups.size(); ++i)
+        {
+            const CraftingRecipeRowGroup& row = rowGroups[i];
+            if (row.recipeBound && row.originallyVisible)
+            {
+                categories.push_back(row.category);
+                ++boundRows;
+                if (row.category.kind == CraftingRecipeCategory::Armor)
+                {
+                    AddCraftingCoverageParts(row.recipeButton, coverageParts);
+                }
+            }
+        }
+    }
+    const CraftingCategorySelection selection = forceShowAll
+        ? CraftingCategorySelection()
+        : UpdateCraftingCategoryControls(categories, nativeRows, coverageParts);
+    const CraftingRecipeSortStat sortStat = GetCraftingRecipeSortStat(selection.sortMode);
+    const bool filterByCoverage = !selection.coveragePart.empty();
     const std::string query = forceShowAll ? std::string() : g_searchQueryNormalized;
     std::size_t totalCount = 0;
     std::size_t visibleCount = 0;
+    std::size_t resolvedSortCount = 0;
     std::vector<int> visibleSlotTops;
     visibleSlotTops.reserve(rowGroups.size());
+    std::vector<CraftingRecipeSortRow> visibleRows;
+    visibleRows.reserve(rowGroups.size());
+    std::vector<int> targetTops(rowGroups.size());
+    std::vector<bool> visible(rowGroups.size(), false);
     for (std::size_t groupIndex = 0; groupIndex < rowGroups.size(); ++groupIndex)
     {
-        visibleSlotTops.push_back(rowGroups[groupIndex].originalTop);
-    }
-
-    std::size_t nextVisibleSlot = 0;
-    for (std::size_t groupIndex = 0; groupIndex < rowGroups.size(); ++groupIndex)
-    {
-        CraftingRecipeRowGroup& group = rowGroups[groupIndex];
-        const bool hasSearchableText = !group.normalizedText.empty();
-        if (hasSearchableText)
+        const CraftingRecipeRowGroup& row = rowGroups[groupIndex];
+        targetTops[groupIndex] = row.originalTop;
+        if (nativeRows && !row.originallyVisible)
+        {
+            continue;
+        }
+        visibleSlotTops.push_back(row.originalTop);
+        const bool countAsRow = nativeRows || !row.normalizedText.empty();
+        if (countAsRow)
         {
             ++totalCount;
         }
 
-        const bool shouldBeVisible =
-            query.empty() || (!group.normalizedText.empty() && group.normalizedText.find(query) != std::string::npos);
-        int targetTop = group.originalTop;
-        if (shouldBeVisible && nextVisibleSlot < visibleSlotTops.size())
+        const bool textMatches = query.empty() || row.normalizedText.find(query) != std::string::npos;
+        if (!textMatches || !selection.category.Matches(row.category) || !selection.armorClass.Matches(row.category))
         {
-            targetTop = visibleSlotTops[nextVisibleSlot];
-            ++nextVisibleSlot;
+            continue;
+        }
+        float coverage = 0.0f;
+        if (filterByCoverage && (!row.recipeBound
+            || !TryGetCraftingCoveragePercent(row.recipeButton, selection.coveragePart, coverage)
+            || coverage < selection.minimumCoverage))
+        {
+            continue;
         }
 
-        const int topDelta = targetTop - group.originalTop;
+        CraftingRecipeSortRow sortable(groupIndex, row.normalizedText);
+        if (sortStat == CraftingSortStatCoverage && filterByCoverage)
+        {
+            sortable.hasValue = true;
+            sortable.value = coverage;
+        }
+        else if (sortStat != CraftingSortStatNone && row.recipeBound)
+        {
+            sortable.hasValue = TryGetCraftingRecipeSortValue(row.recipeButton, sortStat, sortable.value);
+        }
+        resolvedSortCount += sortable.hasValue ? 1 : 0;
+        visibleRows.push_back(sortable);
+        visible[groupIndex] = true;
+        if (countAsRow)
+        {
+            ++visibleCount;
+        }
+    }
+
+    SortCraftingRecipeRows(visibleRows, selection.sortMode);
+    for (std::size_t i = 0; i < visibleRows.size(); ++i)
+    {
+        targetTops[visibleRows[i].index] = visibleSlotTops[i];
+    }
+
+    for (std::size_t groupIndex = 0; groupIndex < rowGroups.size(); ++groupIndex)
+    {
+        CraftingRecipeRowGroup& group = rowGroups[groupIndex];
+        const bool shouldBeVisible = visible[groupIndex];
+        const int topDelta = targetTops[groupIndex] - group.originalTop;
         for (std::size_t widgetIndex = 0; widgetIndex < group.widgets.size(); ++widgetIndex)
         {
             CraftingRecipeWidget& widget = group.widgets[widgetIndex];
             if (widget.widget != 0)
             {
-                MyGUI::IntCoord coord = widget.originalCoord;
-                coord.top += topDelta;
-                widget.widget->setCoord(coord);
-                widget.widget->setVisible(shouldBeVisible);
+                if (nativeRows)
+                {
+                    widget.widget->setPosition(widget.widget->getLeft(), widget.originalCoord.top + topDelta);
+                    widget.widget->setVisible(shouldBeVisible && widget.originallyVisible);
+                }
+                else
+                {
+                    MyGUI::IntCoord coord = widget.originalCoord;
+                    coord.top += topDelta;
+                    widget.widget->setCoord(coord);
+                    widget.widget->setVisible(shouldBeVisible);
+                }
             }
         }
 
-        if (shouldBeVisible && hasSearchableText)
+    }
+
+    if (nativeRows)
+    {
+        MyGUI::Widget* tab = FindCraftingTab(entriesRoot);
+        if (tab != 0)
         {
-            ++visibleCount;
+            for (std::size_t i = 0; i < sizeof(kCraftingDescriptionPanels) / sizeof(kCraftingDescriptionPanels[0]); ++i)
+            {
+                MyGUI::Widget* panel = FindNamedDescendantByTokenRecursive(tab, kCraftingDescriptionPanels[i], false);
+                if (panel != 0)
+                {
+                    RestoreOrHideRecipeDescription(panel, rowGroups, visible);
+                }
+            }
+        }
+
+        MyGUI::InputManager* input = MyGUI::InputManager::getInstancePtr();
+        MyGUI::Widget* focused = input != 0 ? input->getKeyFocusWidget() : 0;
+        for (MyGUI::Widget* widget = focused; widget != 0 && widget != entriesRoot; widget = widget->getParent())
+        {
+            if (widget->isUserString(kCraftingRecipeButtonKey) && !widget->getInheritedVisible())
+            {
+                input->resetKeyFocusWidget();
+                break;
+            }
         }
     }
 
@@ -502,6 +787,10 @@ bool ApplySearchFilterToCraftingParent(MyGUI::Widget* craftingParent, bool force
              << " visible=" << visibleCount
              << " total=" << totalCount
              << " row_groups=" << rowGroups.size()
+             << " recipe_ids_bound=" << boundRows
+             << " sort_mode=" << selection.sortMode
+             << " resolved_sort_values=" << resolvedSortCount
+             << " station_recipes=" << GetAvailableCraftingRecipeCount()
              << " tracked_widgets=" << trackedWidgetCount
              << " entries_root_token=" << (entriesRootToken == 0 ? "<null>" : entriesRootToken)
              << " entries_root=" << SafeWidgetName(entriesRoot);
@@ -579,6 +868,24 @@ std::string BuildObservedTraderEntriesStateSignature()
 void ResetObservedTraderEntriesState()
 {
     g_lastObservedTraderEntriesStateSignature.clear();
+}
+
+void ObserveCraftingRecipeRowsForRefresh()
+{
+    MyGUI::Widget* parent = ResolveTraderParentFromControlsContainer();
+    MyGUI::Widget* panel = FindWidgetInParentByToken(parent, kCraftingRecipesPanelName);
+    if (panel != 0 && !panel->getInheritedVisible())
+    {
+        panel = 0;
+    }
+
+    const unsigned long long revision = GetCraftingRecipeRevision();
+    if (panel != g_observedCraftingRecipesPanel || (panel != 0 && revision != g_observedCraftingRecipeRevision))
+    {
+        MarkSearchFilterDirty("crafting_recipe_rows_changed");
+    }
+    g_observedCraftingRecipesPanel = panel;
+    g_observedCraftingRecipeRevision = revision;
 }
 
 void ObserveTraderEntriesStateForRefresh()
@@ -1451,15 +1758,20 @@ void ApplySearchFilterFromControls(bool forceShowAll, bool logSummary)
         return;
     }
 
-    if (FindWidgetInParentByToken(targetParent, "QueueItemsPanel") != 0)
+    MyGUI::Widget* recipePanel = FindWidgetInParentByToken(targetParent, kCraftingRecipesPanelName);
+    if (recipePanel != 0)
     {
-        if (ApplySearchFilterToCraftingParent(targetParent, forceShowAll, logSummary))
+        if (ApplySearchFilterToCraftingParent(targetParent, recipePanel, forceShowAll, logSummary))
         {
             g_searchFilterDirty = false;
         }
         return;
     }
 
+    if (!forceShowAll)
+    {
+        UpdateCraftingCategoryControls(CraftingRecipeCategories(), false);
+    }
     if (ApplySearchFilterToTraderParent(targetParent, forceShowAll, logSummary))
     {
         g_searchFilterDirty = false;

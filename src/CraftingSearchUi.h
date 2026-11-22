@@ -1,5 +1,8 @@
 #pragma once
 
+#include "CraftingRecipes.h"
+#include "CraftingRecipeSort.h"
+
 #include <cstddef>
 #include <string>
 
@@ -34,6 +37,17 @@ struct SearchUiCallbacks
     void (*onSearchClearButtonClicked)(MyGUI::Widget* sender);
 };
 
+struct CraftingCategorySelection
+{
+    CraftingCategorySelection() : minimumCoverage(0), sortMode(CraftingRecipeSortOriginal) {}
+
+    CraftingCategoryFilter category;
+    CraftingCategoryFilter armorClass;
+    std::string coveragePart;
+    int minimumCoverage;
+    CraftingRecipeSortMode sortMode;
+};
+
 MyGUI::Widget* FindControlsContainer();
 MyGUI::EditBox* FindSearchEditBox();
 MyGUI::TextBox* FindSearchPlaceholderTextBox();
@@ -44,15 +58,13 @@ void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason);
 void FocusSearchEditIfRequested(MyGUI::EditBox* searchEdit, const char* reason);
 bool IsSearchEditFocused(MyGUI::EditBox* searchEdit);
 void UpdateSearchUiState();
+CraftingCategorySelection UpdateCraftingCategoryControls(const CraftingRecipeCategories& recipes, bool canSort,
+    const CraftingCoveragePartOptions& parts = CraftingCoveragePartOptions());
 void UpdateSearchCountText(
     std::size_t visibleEntryCount,
     std::size_t totalEntryCount,
     std::size_t visibleQuantity);
 void TickSearchContainerDrag();
-bool BuildControlsScaffold(
-    MyGUI::Widget* parent,
-    int topOverride,
-    const SearchUiCallbacks& callbacks);
 SearchFocusHotkeyKind DetectSearchFocusHotkeyPressedEdge(MyGUI::EditBox* searchEdit);
 void ApplyRuntimeSearchUiConfig(const char* reason);
 void TickPhase2ControlsScaffold();

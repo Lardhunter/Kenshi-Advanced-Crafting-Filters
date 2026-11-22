@@ -248,8 +248,11 @@ std::string BuildTraderConfigText(const TraderConfigSnapshot& config)
             << "  \"searchInputHeight\": " << config.searchInputHeight << ",\n"
             << "  \"searchInputPositionCustomized\": "
             << (config.searchInputPositionCustomized ? "true" : "false") << ",\n"
+            << "  \"searchInputPositionOnScreen\": " << (config.searchInputPositionOnScreen ? "true" : "false") << ",\n"
             << "  \"searchInputLeft\": " << config.searchInputLeft << ",\n"
-            << "  \"searchInputTop\": " << config.searchInputTop << "\n"
+            << "  \"searchInputTop\": " << config.searchInputTop << ",\n"
+            << "  \"searchPanelWidth\": " << config.searchPanelWidth << ",\n"
+            << "  \"searchPanelHeight\": " << config.searchPanelHeight << "\n"
             << "}\n";
     return content.str();
 }
@@ -273,6 +276,8 @@ void LogTraderConfigSnapshot(const char* prefix, const TraderConfigSnapshot& con
          << (config.searchInputPositionCustomized ? "true" : "false")
          << " searchInputLeft=" << config.searchInputLeft
          << " searchInputTop=" << config.searchInputTop
+         << " searchPanelWidth=" << config.searchPanelWidth
+         << " searchPanelHeight=" << config.searchPanelHeight
          << " verboseDiagnosticsCompiled="
          << (ShouldCompileVerboseDiagnostics() ? "true" : "false");
     LogInfoLine(line.str());
@@ -382,8 +387,11 @@ void NormalizeTraderConfigSnapshot(TraderConfigSnapshot* config)
 
     config->searchInputWidth = ClampSearchInputConfiguredWidth(config->searchInputWidth);
     config->searchInputHeight = ClampSearchInputConfiguredHeight(config->searchInputHeight);
+    config->searchPanelWidth = ClampIntValue(config->searchPanelWidth, 0, 16384);
+    config->searchPanelHeight = ClampIntValue(config->searchPanelHeight, 0, 16384);
     if (!config->searchInputPositionCustomized)
     {
+        config->searchInputPositionOnScreen = false;
         config->searchInputLeft = 0;
         config->searchInputTop = 0;
     }
@@ -402,8 +410,11 @@ TraderConfigSnapshot CaptureTraderConfigSnapshot()
     config.searchInputWidth = TraderState().core.g_searchInputConfiguredWidth;
     config.searchInputHeight = TraderState().core.g_searchInputConfiguredHeight;
     config.searchInputPositionCustomized = TraderState().searchUi.g_searchContainerPositionCustomized;
+    config.searchInputPositionOnScreen = TraderState().searchUi.g_searchContainerPositionOnScreen;
     config.searchInputLeft = TraderState().searchUi.g_searchContainerStoredLeft;
     config.searchInputTop = TraderState().searchUi.g_searchContainerStoredTop;
+    config.searchPanelWidth = TraderState().searchUi.g_searchPanelWidth;
+    config.searchPanelHeight = TraderState().searchUi.g_searchPanelHeight;
     NormalizeTraderConfigSnapshot(&config);
     return config;
 }
@@ -424,8 +435,11 @@ void ApplyTraderConfigSnapshot(const TraderConfigSnapshot& config)
     TraderState().core.g_searchInputConfiguredHeight = normalized.searchInputHeight;
     TraderState().searchUi.g_searchContainerPositionCustomized =
         normalized.searchInputPositionCustomized;
+    TraderState().searchUi.g_searchContainerPositionOnScreen = normalized.searchInputPositionOnScreen;
     TraderState().searchUi.g_searchContainerStoredLeft = normalized.searchInputLeft;
     TraderState().searchUi.g_searchContainerStoredTop = normalized.searchInputTop;
+    TraderState().searchUi.g_searchPanelWidth = normalized.searchPanelWidth;
+    TraderState().searchUi.g_searchPanelHeight = normalized.searchPanelHeight;
 }
 
 bool SaveTraderConfigSnapshot(const TraderConfigSnapshot& config)
@@ -522,6 +536,10 @@ void LoadModConfig()
     {
         config.searchInputPositionCustomized = parsedValue;
     }
+    if (TryParseJsonBoolByKey(configText, "searchInputPositionOnScreen", &parsedValue))
+    {
+        config.searchInputPositionOnScreen = parsedValue;
+    }
     if (TryParseJsonIntByKey(configText, "searchInputLeft", &parsedIntValue))
     {
         config.searchInputLeft = parsedIntValue;
@@ -529,6 +547,14 @@ void LoadModConfig()
     if (TryParseJsonIntByKey(configText, "searchInputTop", &parsedIntValue))
     {
         config.searchInputTop = parsedIntValue;
+    }
+    if (TryParseJsonIntByKey(configText, "searchPanelWidth", &parsedIntValue))
+    {
+        config.searchPanelWidth = parsedIntValue;
+    }
+    if (TryParseJsonIntByKey(configText, "searchPanelHeight", &parsedIntValue))
+    {
+        config.searchPanelHeight = parsedIntValue;
     }
 
     ApplyTraderConfigSnapshot(config);

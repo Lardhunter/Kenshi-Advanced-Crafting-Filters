@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -46,12 +46,12 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(ProjectDir)include;$(KENSHILIB_DIR)\Include;$(KENSHILIB_DIR)\Include\ogre;$(BOOST_INCLUDE_PATH);$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)include;$(KENSHILIB_DIR)\Include;$(KENSHILIB_DIR)\Include\ogre;$(BOOST_INCLUDE_PATH);$(KENSHI_SDK_INCLUDE_PATH);$(IncludePath)</IncludePath>
     <LibraryPath>$(KENSHILIB_DIR)\Libraries;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(ProjectDir)include;$(KENSHILIB_DIR)\Include;$(KENSHILIB_DIR)\Include\ogre;$(BOOST_INCLUDE_PATH);$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)include;$(KENSHILIB_DIR)\Include;$(KENSHILIB_DIR)\Include\ogre;$(BOOST_INCLUDE_PATH);$(KENSHI_SDK_INCLUDE_PATH);$(IncludePath)</IncludePath>
     <LibraryPath>$(KENSHILIB_DIR)\Libraries;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -95,6 +95,9 @@
     <ClCompile Include="src\CraftingInventoryResolver.cpp" />
     <ClCompile Include="src\CraftingInventorySources.cpp" />
     <ClCompile Include="src\CraftingModHub.cpp" />
+    <ClCompile Include="src\CraftingRecipeFilters.cpp" />
+    <ClCompile Include="src\CraftingRecipeSort.cpp" />
+    <ClCompile Include="src\CraftingRecipes.cpp" />
     <ClCompile Include="src\CraftingSearchInputBehavior.cpp" />
     <ClCompile Include="src\CraftingSearchPipeline.cpp" />
     <ClCompile Include="src\CraftingSearchUi.cpp" />
@@ -111,6 +114,8 @@
     <ClInclude Include="src\CraftingDiagnostics.h" />
     <ClInclude Include="src\CraftingInventoryBinding.h" />
     <ClInclude Include="src\CraftingModHub.h" />
+    <ClInclude Include="src\CraftingRecipes.h" />
+    <ClInclude Include="src\CraftingRecipeSort.h" />
     <ClInclude Include="src\CraftingSearchInputBehavior.h" />
     <ClInclude Include="src\CraftingSearchPipeline.h" />
     <ClInclude Include="src\CraftingSearchUi.h" />
@@ -122,3 +127,4 @@
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
+

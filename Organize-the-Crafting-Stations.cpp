@@ -12,7 +12,7 @@
 #include <kenshi/RootObject.h>
 #include <kenshi/Character.h>
 #include <kenshi/Dialogue.h>
-#include <kenshi/Building.h>
+#include <kenshi/Building/Building.h>
 
 #include <mygui/MyGUI_Button.h>
 #include <mygui/MyGUI_ComboBox.h>
@@ -49,16 +49,12 @@ public:
 class InventoryGUI;
 class InventoryIcon;
 class InventoryLayout;
-class InventorySectionGUI
-{
-public:
-    MyGUI::Widget* _widget;
-    Ogre::vector<InventoryIcon*>::type _icons;
-};
+
 
 #include "src/CraftingCore.h"
 #include "src/CraftingDiagnostics.h"
 #include "src/CraftingInventoryBinding.h"
+#include "src/CraftingRecipes.h"
 #include "src/CraftingSearchPipeline.h"
 #include "src/CraftingSearchUi.h"
 #include "src/CraftingSearchText.h"
@@ -202,12 +198,12 @@ void InventoryLayoutCreateGUI_hook(
              ++it)
         {
             InventorySectionGUI* sectionGui = it->second;
-            if (sectionGui == 0 || sectionGui->_widget == 0)
+            if (sectionGui == 0 || sectionGui->widget == 0)
             {
                 continue;
             }
 
-            firstSectionWidget = sectionGui->_widget;
+            firstSectionWidget = sectionGui->widget;
             firstSectionName = it->first;
             break;
         }
@@ -238,7 +234,7 @@ void InventoryLayoutCreateGUI_hook(
          ++it)
     {
         InventorySectionGUI* sectionGui = it->second;
-        MyGUI::Widget* sectionWidget = sectionGui == 0 ? 0 : sectionGui->_widget;
+        MyGUI::Widget* sectionWidget = sectionGui == 0 ? 0 : sectionGui->widget;
         if (sectionWidget == 0)
         {
             continue;
@@ -802,6 +798,7 @@ InventoryLayout* RootObject_createInventoryLayout_hook(RootObject* self)
 
 void PlayerInterface_updateUT_hook(PlayerInterface* self)
 {
+    ObserveCraftingRecipeUiThread();
     ++g_updateTickCounter;
     if ((g_updateTickCounter % 240ULL) == 0ULL)
     {
@@ -903,6 +900,7 @@ __declspec(dllexport) void startPlugin()
         return;
     }
 
+    InstallCraftingRecipeHooks();
     TraderModHub_OnStartup();
 
     std::stringstream info;
@@ -918,3 +916,4 @@ BOOL APIENTRY DllMain(HMODULE, DWORD, LPVOID)
 {
     return TRUE;
 }
+

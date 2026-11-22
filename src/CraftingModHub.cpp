@@ -124,6 +124,10 @@ EMC_Result SetHubIntSetting(
     const TraderConfigSnapshot previous = CaptureTraderConfigSnapshot();
     TraderConfigSnapshot updated = previous;
     updated.*field = static_cast<int>(value);
+    if (field == &TraderConfigSnapshot::searchInputWidth)
+    {
+        updated.searchPanelWidth = 0;
+    }
     NormalizeTraderConfigSnapshot(&updated);
     ApplyTraderConfigSnapshot(updated);
 

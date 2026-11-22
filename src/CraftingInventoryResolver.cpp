@@ -1,9 +1,9 @@
-#include "CraftingInventoryBinding.h"
+﻿#include "CraftingInventoryBinding.h"
 
 #include "CraftingSearchText.h"
 #include "CraftingWindowDetection.h"
 
-#include <kenshi/Building.h>
+#include <kenshi/Building/Building.h>
 #include <kenshi/Character.h>
 #include <kenshi/Dialogue.h>
 #include <kenshi/GameWorld.h>
@@ -1622,3 +1622,4 @@ bool TryResolveInventoryNameKeysFromCandidates(
     }
     return true;
 }
+

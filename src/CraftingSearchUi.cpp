@@ -12,16 +12,23 @@
 #include <kenshi/InputHandler.h>
 
 #include <mygui/MyGUI_Button.h>
+#include <mygui/MyGUI_ComboBox.h>
 #include <mygui/MyGUI_EditBox.h>
 #include <mygui/MyGUI_Gui.h>
 #include <mygui/MyGUI_InputManager.h>
+#include <mygui/MyGUI_LayerManager.h>
+#include <mygui/MyGUI_RenderManager.h>
+#include <mygui/MyGUI_ResourceManager.h>
 #include <mygui/MyGUI_TextBox.h>
 #include <mygui/MyGUI_Widget.h>
 #include <mygui/MyGUI_Window.h>
+#include <mygui/MyGUI_WidgetManager.h>
 #include <ois/OISKeyboard.h>
 
 #include <Windows.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <sstream>
 
 namespace
@@ -32,7 +39,77 @@ const char* kSearchPlaceholderName = "OTCS_SearchPlaceholder";
 const char* kSearchClearButtonName = "OTCS_SearchClearButton";
 const char* kSearchDragHandleName = "OTCS_SearchDragHandle";
 const char* kSearchCountTextName = "OTCS_SearchCountText";
-const int kSearchCountGap = 2;
+const char* kCraftingCategoryComboName = "OTCS_RecipeCategory";
+const char* kCraftingArmorClassComboName = "OTCS_RecipeArmorClass";
+const char* kCraftingSortComboName = "OTCS_RecipeSort";
+const char* kCoveragePartComboName = "OTCS_CoveragePart";
+const char* kCraftingCategoryLabelName = "OTCS_CategoryLabel";
+const char* kCraftingArmorClassLabelName = "OTCS_ArmorClassLabel";
+const char* kCraftingSortLabelName = "OTCS_SortLabel";
+const char* kCoveragePartLabelName = "OTCS_CoveragePartLabel";
+const char* kComboTextMeasureName = "OTCS_ComboTextMeasure";
+const char* kCoveragePercentName = "OTCS_CoveragePercent";
+const char* kCoveragePercentLabelName = "OTCS_CoveragePercentLabel";
+const char* kCraftingFilterContentName = "OTCS_FilterContent";
+const char* kCraftingCollapseButtonName = "OTCS_CollapseFilters";
+const char* kCraftingResizeGripName = "OTCS_ResizeFilters";
+const char* kCraftingHeaderName = "OTCS_FilterHeader";
+const int kPanelPadding = 8;
+const int kPanelGap = 6;
+const int kPanelDefaultWidth = 350;
+const int kPanelMinWidth = 290;
+const int kFilterLabelWidth = 63;
+// Space outside the text in the stock dropdown client and list (including the scrollbar).
+const int kComboTextPadding = 52;
+const int kPanelMinBodyHeight = 127; // Fixed top and bottom sections of Kenshi_GenericWindowSkin.
+const int kPanelHeaderHeight = 38;
+const int kCollapsedPanelWidth = 190;
+const int kSearchCountWidth = 96;
+const int kResizeGripSize = 22;
+
+struct FloatingRecipePanel : MyGUI::IUnlinkWidget
+{
+    FloatingRecipePanel() : manager(0), root(0), content(0), target(0), scope(0),
+        minimumWidth(kPanelMinWidth), minimumHeight(0), viewport(0, 0) {}
+
+    void _unlinkWidget(MyGUI::Widget* widget) override
+    {
+        if (widget == root) root = 0;
+        if (widget == content) content = 0;
+        if (widget == target) target = 0;
+        if (widget == scope) scope = 0;
+    }
+
+    void Disconnect()
+    {
+        if (manager != 0 && manager == MyGUI::WidgetManager::getInstancePtr())
+        {
+            manager->unregisterUnlinker(this);
+        }
+        manager = 0;
+        root = 0;
+        content = 0;
+        target = 0;
+        scope = 0;
+        minimumWidth = kPanelMinWidth;
+    }
+
+    MyGUI::WidgetManager* manager;
+    MyGUI::Widget* root;
+    MyGUI::Widget* content;
+    MyGUI::Widget* target;
+    MyGUI::Widget* scope;
+    int minimumWidth;
+    int minimumHeight;
+    MyGUI::IntSize viewport;
+};
+
+FloatingRecipePanel g_recipePanel;
+bool g_filterPanelCollapsed = false;
+bool g_filterPanelResizing = false;
+MyGUI::IntSize g_filterPanelDragStartSize(0, 0);
+CraftingRecipeSortMode g_recipeSortMode = CraftingRecipeSortOriginal;
+bool g_syncingRecipeSortCombo = false;
 
 struct PendingSearchEditShortcut
 {
@@ -83,12 +160,15 @@ TraderSearchInputBehavior::Snapshot g_searchEditSnapshot;
 #define g_focusSearchEditOnNextInjection (TraderState().searchUi.g_focusSearchEditOnNextInjection)
 #define g_searchContainerDragging (TraderState().searchUi.g_searchContainerDragging)
 #define g_searchContainerPositionCustomized (TraderState().searchUi.g_searchContainerPositionCustomized)
+#define g_searchContainerPositionOnScreen (TraderState().searchUi.g_searchContainerPositionOnScreen)
 #define g_searchContainerDragLastMouseX (TraderState().searchUi.g_searchContainerDragLastMouseX)
 #define g_searchContainerDragLastMouseY (TraderState().searchUi.g_searchContainerDragLastMouseY)
 #define g_searchContainerDragStartLeft (TraderState().searchUi.g_searchContainerDragStartLeft)
 #define g_searchContainerDragStartTop (TraderState().searchUi.g_searchContainerDragStartTop)
 #define g_searchContainerStoredLeft (TraderState().searchUi.g_searchContainerStoredLeft)
 #define g_searchContainerStoredTop (TraderState().searchUi.g_searchContainerStoredTop)
+#define g_searchPanelWidth (TraderState().searchUi.g_searchPanelWidth)
+#define g_searchPanelHeight (TraderState().searchUi.g_searchPanelHeight)
 
 #define g_cachedHoveredWidgetInventory (TraderState().binding.g_cachedHoveredWidgetInventory)
 #define g_cachedHoveredWidgetInventorySignature (TraderState().binding.g_cachedHoveredWidgetInventorySignature)
@@ -373,64 +453,6 @@ bool SearchHasNoVisibleResults()
         && g_lastSearchVisibleEntryCount == 0;
 }
 
-int ResolvePreferredSearchCountTextWidth()
-{
-    if (!ShouldShowAnySearchCountMetric())
-    {
-        return 0;
-    }
-
-    return 72;
-}
-
-int ResolveSearchCountTextWidth(int availableWidth)
-{
-    if (!ShouldShowAnySearchCountMetric())
-    {
-        return 0;
-    }
-
-    int desiredWidth = ResolvePreferredSearchCountTextWidth();
-
-    const int minSearchInputWidth = 120;
-    const int minCountWidth = 44;
-    const int maxAllowedWidth = availableWidth - minSearchInputWidth;
-    if (maxAllowedWidth < minCountWidth)
-    {
-        return 0;
-    }
-    if (desiredWidth > maxAllowedWidth)
-    {
-        desiredWidth = maxAllowedWidth;
-    }
-
-    return desiredWidth;
-}
-
-int ResolveSearchCountCaptionWidth(const std::string& caption, int maxWidth)
-{
-    if (caption.empty())
-    {
-        return 0;
-    }
-
-    const int minCountWidth = 44;
-    const int horizontalPadding = 6;
-    const int estimatedCharacterWidth = 5;
-    int desiredWidth =
-        horizontalPadding + (static_cast<int>(caption.size()) * estimatedCharacterWidth);
-    if (desiredWidth < minCountWidth)
-    {
-        desiredWidth = minCountWidth;
-    }
-    if (maxWidth > 0 && desiredWidth > maxWidth)
-    {
-        desiredWidth = maxWidth;
-    }
-
-    return desiredWidth;
-}
-
 std::string BuildSearchCountCaption(
     std::size_t visibleEntryCount,
     std::size_t totalEntryCount,
@@ -462,48 +484,40 @@ bool TryGetCurrentMousePosition(int* xOut, int* yOut)
     return true;
 }
 
-MyGUI::IntCoord ClampSearchContainerCoord(MyGUI::Widget* parent, const MyGUI::IntCoord& inputCoord)
+MyGUI::IntSize GetRecipePanelViewport()
 {
-    if (parent == 0)
+    MyGUI::RenderManager* render = MyGUI::RenderManager::getInstancePtr();
+    return render != 0 ? render->getViewSize() : MyGUI::IntSize();
+}
+
+int FilterPanelMinimumHeight(int rowCount)
+{
+    const int controlHeight = kPanelPadding + rowCount * (g_searchInputConfiguredHeight + kPanelGap)
+        + kResizeGripSize + kPanelPadding;
+    return kPanelHeaderHeight + (std::max)(kPanelMinBodyHeight, controlHeight);
+}
+
+MyGUI::IntSize ResolveExpandedPanelSize(const MyGUI::IntSize& view, int minimumWidth, int minimumHeight)
+{
+    const int automaticWidth = kPanelDefaultWidth + g_searchInputConfiguredWidth - kDefaultSearchInputConfiguredWidth;
+    const int preferredWidth = g_searchPanelWidth > 0 ? g_searchPanelWidth : automaticWidth;
+    return MyGUI::IntSize(
+        (std::min)(view.width, (std::max)(minimumWidth, preferredWidth)),
+        (std::min)(view.height, (std::max)(minimumHeight, g_searchPanelHeight)));
+}
+
+MyGUI::IntCoord ClampSearchContainerCoord(const MyGUI::IntCoord& inputCoord)
+{
+    const MyGUI::IntSize view = GetRecipePanelViewport();
+    if (view.width <= 0 || view.height <= 0)
     {
         return inputCoord;
     }
-
-    int left = inputCoord.left;
-    int top = inputCoord.top;
-    const int width = inputCoord.width;
-    const int height = inputCoord.height;
-
-    if (left < 8)
-    {
-        left = 8;
-    }
-    if (top < 8)
-    {
-        top = 8;
-    }
-
-    int maxLeft = parent->getWidth() - width - 8;
-    int maxTop = parent->getHeight() - height - 8;
-    if (maxLeft < 8)
-    {
-        maxLeft = 8;
-    }
-    if (maxTop < 8)
-    {
-        maxTop = 8;
-    }
-
-    if (left > maxLeft)
-    {
-        left = maxLeft;
-    }
-    if (top > maxTop)
-    {
-        top = maxTop;
-    }
-
-    return MyGUI::IntCoord(left, top, width, height);
+    const int maxLeft = (std::max)(0, view.width - inputCoord.width);
+    const int maxTop = (std::max)(0, view.height - inputCoord.height);
+    const int left = (std::max)(0, (std::min)(inputCoord.left, maxLeft));
+    const int top = (std::max)(0, (std::min)(inputCoord.top, maxTop));
+    return MyGUI::IntCoord(left, top, inputCoord.width, inputCoord.height);
 }
 
 void RememberSearchContainerPosition(MyGUI::Widget* container)
@@ -517,6 +531,7 @@ void RememberSearchContainerPosition(MyGUI::Widget* container)
     g_searchContainerStoredLeft = coord.left;
     g_searchContainerStoredTop = coord.top;
     g_searchContainerPositionCustomized = true;
+    g_searchContainerPositionOnScreen = true;
 }
 
 void RememberSearchEditSnapshotValue(
@@ -546,7 +561,9 @@ void PersistSearchContainerPosition()
     SaveTraderConfigSnapshot(config);
 }
 
-void MoveSearchContainerByDelta(int deltaX, int deltaY)
+void LayoutFloatingPanel();
+
+void MoveOrResizeSearchContainer(int deltaX, int deltaY)
 {
     if (deltaX == 0 && deltaY == 0)
     {
@@ -559,18 +576,39 @@ void MoveSearchContainerByDelta(int deltaX, int deltaY)
         return;
     }
 
-    MyGUI::Widget* parent = container->getParent();
     const MyGUI::IntCoord current = container->getCoord();
+    if (g_filterPanelResizing)
+    {
+        if (g_recipePanel.content == 0 || !g_recipePanel.content->getInheritedVisible())
+        {
+            return;
+        }
+        const MyGUI::IntSize view = GetRecipePanelViewport();
+        if (view.width < kPanelMinWidth || view.height < g_recipePanel.minimumHeight)
+        {
+            return;
+        }
+        const int minimumWidth = (std::min)(view.width, g_recipePanel.minimumWidth);
+        const int width = (std::max)(minimumWidth, (std::min)(view.width - current.left, current.width + deltaX));
+        const int height = (std::max)(g_recipePanel.minimumHeight,
+            (std::min)(view.height - current.top, current.height + deltaY));
+        if (width != current.width || height != current.height)
+        {
+            g_searchPanelWidth = width;
+            g_searchPanelHeight = height;
+            LayoutFloatingPanel();
+        }
+        return;
+    }
+
     const MyGUI::IntCoord moved = ClampSearchContainerCoord(
-        parent,
         MyGUI::IntCoord(current.left + deltaX, current.top + deltaY, current.width, current.height));
     if (moved.left == current.left && moved.top == current.top)
     {
         return;
     }
 
-    container->setCoord(moved);
-    RememberSearchContainerPosition(container);
+    container->setPosition(moved.left, moved.top);
 }
 
 void FinalizeSearchContainerDrag(const char* source)
@@ -581,31 +619,35 @@ void FinalizeSearchContainerDrag(const char* source)
     }
 
     g_searchContainerDragging = false;
+    const bool wasResize = g_filterPanelResizing;
+    g_filterPanelResizing = false;
     MyGUI::Widget* container = FindControlsContainer();
     if (container == 0)
     {
         return;
     }
 
-    RememberSearchContainerPosition(container);
-
     std::stringstream line;
     const MyGUI::IntCoord coord = container->getCoord();
     const bool positionChanged =
         coord.left != g_searchContainerDragStartLeft || coord.top != g_searchContainerDragStartTop;
-    if (positionChanged)
+    const bool sizeChanged = wasResize && (coord.width != g_filterPanelDragStartSize.width
+        || coord.height != g_filterPanelDragStartSize.height);
+    if (positionChanged || sizeChanged)
     {
+        RememberSearchContainerPosition(container);
         PersistSearchContainerPosition();
     }
 
     line << "search container drag finalized"
          << " source=" << (source == 0 ? "<unknown>" : source)
          << " moved=" << (positionChanged ? "true" : "false")
+         << " resized=" << (sizeChanged ? "true" : "false")
          << " coord=(" << coord.left << "," << coord.top << "," << coord.width << "," << coord.height << ")";
     LogDebugLine(line.str());
 }
 
-void OnSearchDragHandleMousePressed(MyGUI::Widget*, int left, int top, MyGUI::MouseButton id)
+void OnSearchDragHandleMousePressed(MyGUI::Widget* sender, int left, int top, MyGUI::MouseButton id)
 {
     if (id != MyGUI::MouseButton::Left)
     {
@@ -613,18 +655,16 @@ void OnSearchDragHandleMousePressed(MyGUI::Widget*, int left, int top, MyGUI::Mo
     }
 
     MyGUI::Widget* container = FindControlsContainer();
-    if (container != 0)
+    if (container == 0)
     {
-        const MyGUI::IntCoord coord = container->getCoord();
-        g_searchContainerDragStartLeft = coord.left;
-        g_searchContainerDragStartTop = coord.top;
-    }
-    else
-    {
-        g_searchContainerDragStartLeft = 0;
-        g_searchContainerDragStartTop = 0;
+        return;
     }
 
+    const MyGUI::IntCoord coord = container->getCoord();
+    g_searchContainerDragStartLeft = coord.left;
+    g_searchContainerDragStartTop = coord.top;
+    g_filterPanelDragStartSize = MyGUI::IntSize(coord.width, coord.height);
+    g_filterPanelResizing = sender->getName() == kCraftingResizeGripName;
     g_searchContainerDragging = true;
     if (!TryGetCurrentMousePosition(&g_searchContainerDragLastMouseX, &g_searchContainerDragLastMouseY))
     {
@@ -651,7 +691,7 @@ void OnSearchDragHandleMouseDrag(MyGUI::Widget*, int left, int top, MyGUI::Mouse
         return;
     }
 
-    MoveSearchContainerByDelta(deltaX, deltaY);
+    MoveOrResizeSearchContainer(deltaX, deltaY);
     g_searchContainerDragLastMouseX = mouseX;
     g_searchContainerDragLastMouseY = mouseY;
 }
@@ -676,60 +716,61 @@ void OnSearchDragHandleMouseReleased(MyGUI::Widget*, int, int, MyGUI::MouseButto
     FinalizeSearchContainerDrag("drag_release");
 }
 
-int RelativeBottomInParent(MyGUI::Widget* parent, MyGUI::Widget* child)
+void BindPanelDrag(MyGUI::Widget* handle)
 {
-    if (parent == 0 || child == 0)
-    {
-        return 0;
-    }
-
-    const MyGUI::IntCoord parentAbsolute = parent->getAbsoluteCoord();
-    const MyGUI::IntCoord childAbsolute = child->getAbsoluteCoord();
-    return (childAbsolute.top - parentAbsolute.top) + childAbsolute.height;
+    handle->setNeedMouseFocus(true);
+    handle->setNeedKeyFocus(false);
+    handle->eventMouseButtonPressed += MyGUI::newDelegate(&OnSearchDragHandleMousePressed);
+    handle->eventMouseMove += MyGUI::newDelegate(&OnSearchDragHandleMouseMove);
+    handle->eventMouseDrag += MyGUI::newDelegate(&OnSearchDragHandleMouseDrag);
+    handle->eventMouseButtonReleased += MyGUI::newDelegate(&OnSearchDragHandleMouseReleased);
 }
 
-int ResolveControlsTop(MyGUI::Widget* parent)
+bool PlacePanelOutsideWindow(const MyGUI::IntCoord& window, const MyGUI::IntSize& view, MyGUI::IntCoord& panel)
 {
-    const int defaultTop = 16;
-    if (parent == 0)
+    const int right = window.left + window.width + kPanelGap;
+    const int left = window.left - panel.width - kPanelGap;
+    const int below = window.top + window.height + kPanelGap;
+    const int above = window.top - panel.height - kPanelGap;
+    if (right + panel.width <= view.width || left >= 0)
     {
-        return defaultTop;
+        panel.left = right + panel.width <= view.width ? right : left;
+        panel.top = window.top;
+        return true;
     }
-
-    const char* moneyWidgetPriority[] =
+    if (below + panel.height <= view.height || above >= 0)
     {
-        "MoneyAmountTextBox",
-        "MoneyAmountText",
-        "TotalMoneyBuyer",
-        "lbTotalMoney",
-        "MoneyLabelText",
-        "lbBuyersMoney",
-        "datapanel"
-    };
-
-    for (std::size_t index = 0; index < sizeof(moneyWidgetPriority) / sizeof(moneyWidgetPriority[0]); ++index)
-    {
-        MyGUI::Widget* moneyWidget = FindWidgetInParentByToken(parent, moneyWidgetPriority[index]);
-        if (moneyWidget == 0)
-        {
-            continue;
-        }
-
-        int top = RelativeBottomInParent(parent, moneyWidget) + 8;
-        if (top < defaultTop)
-        {
-            top = defaultTop;
-        }
-
-        std::stringstream line;
-        line << "controls top resolved from widget=" << moneyWidgetPriority[index]
-             << " top=" << top;
-        LogDebugLine(line.str());
-        return top;
+        panel.left = window.left + window.width - panel.width;
+        panel.top = below + panel.height <= view.height ? below : above;
+        return true;
     }
+    return false;
+}
 
-    LogDebugLine("controls top fallback to default (no money widget found)");
-    return defaultTop;
+void SetFilterPanelCollapsed(bool collapsed)
+{
+    if (collapsed && g_recipePanel.root != 0)
+    {
+        MyGUI::InputManager* input = MyGUI::InputManager::getInstancePtr();
+        if (input != 0)
+        {
+            for (MyGUI::Widget* focus = input->getKeyFocusWidget(); focus != 0; focus = focus->getParent())
+            {
+                if (focus == g_recipePanel.root)
+                {
+                    input->resetKeyFocusWidget();
+                    break;
+                }
+            }
+        }
+    }
+    g_filterPanelCollapsed = collapsed;
+    LayoutFloatingPanel();
+}
+
+void OnCollapseFilterPanel(MyGUI::Widget*)
+{
+    SetFilterPanelCollapsed(!g_filterPanelCollapsed);
 }
 
 void DestroyWidgetDirect(MyGUI::Widget* widget)
@@ -783,7 +824,7 @@ void OnSearchEditKeyReleased(MyGUI::Widget* sender, MyGUI::KeyCode keyCode);
 
 MyGUI::Widget* FindControlsContainer()
 {
-    return FindWidgetByName(kControlsContainerName);
+    return g_recipePanel.root;
 }
 
 MyGUI::EditBox* FindSearchEditBox()
@@ -838,7 +879,7 @@ MyGUI::TextBox* FindSearchCountTextBox()
 
 MyGUI::Widget* ResolveTraderParentFromControlsContainer()
 {
-    return ::ResolveTraderParentFromControlsContainer(FindControlsContainer());
+    return g_recipePanel.target;
 }
 
 void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason)
@@ -855,6 +896,14 @@ void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason)
         return;
     }
 
+    if (g_filterPanelCollapsed)
+    {
+        SetFilterPanelCollapsed(false);
+    }
+    if (!searchEdit->getInheritedVisible())
+    {
+        return;
+    }
     input->setKeyFocusWidget(searchEdit);
 
     std::stringstream line;
@@ -898,7 +947,7 @@ void FocusSearchEditIfRequested(MyGUI::EditBox* searchEdit, const char* reason)
     }
 
     g_focusSearchEditOnNextInjection = false;
-    if (g_autoFocusSearchInput)
+    if (g_autoFocusSearchInput && !g_filterPanelCollapsed)
     {
         FocusSearchEdit(searchEdit, reason);
     }
@@ -938,60 +987,12 @@ void UpdateSearchUiState()
 
     if (clearButton != 0)
     {
-        MyGUI::Widget* container = searchEdit->getParent();
-        const MyGUI::IntCoord clearCoord = clearButton->getCoord();
-        const int clearButtonWidth = clearCoord.width;
-        const int clearGap = 4;
-        const bool showClearButton = g_showSearchClearButton;
-        const bool clearButtonHasAction = hasQuery;
-        int availableRight = 0;
-        if (countText != 0 && ShouldShowAnySearchCountMetric())
-        {
-            availableRight = countText->getLeft() - kSearchCountGap;
-        }
-        else if (container != 0)
-        {
-            availableRight = container->getWidth() - 8;
-        }
-        else
-        {
-            availableRight = clearCoord.left + clearCoord.width;
-        }
-
-        int clearLeft = availableRight - clearButtonWidth;
-        if (clearLeft < searchEdit->getLeft())
-        {
-            clearLeft = searchEdit->getLeft();
-        }
-
-        int desiredEditWidth = availableRight - searchEdit->getLeft();
-        if (showClearButton)
-        {
-            desiredEditWidth = clearLeft - clearGap - searchEdit->getLeft();
-        }
-        if (desiredEditWidth < 80)
-        {
-            desiredEditWidth = 80;
-        }
-
-        const MyGUI::IntCoord editCoord = searchEdit->getCoord();
-        if (editCoord.width != desiredEditWidth)
-        {
-            searchEdit->setCoord(editCoord.left, editCoord.top, desiredEditWidth, editCoord.height);
-        }
-
-        if (clearCoord.left != clearLeft)
-        {
-            clearButton->setCoord(clearLeft, clearCoord.top, clearCoord.width, clearCoord.height);
-        }
-
-        clearButton->setVisible(showClearButton);
         clearButton->setAlpha(
-            clearButtonHasAction
+            hasQuery
                 ? (focused ? 1.0f : 0.86f)
                 : (focused ? 0.72f : 0.6f));
         clearButton->setColour(
-            clearButtonHasAction
+            hasQuery
                 ? (noVisibleResults
                     ? MyGUI::Colour(1.0f, 0.78f, 0.78f, 1.0f)
                     : MyGUI::Colour::White)
@@ -1000,32 +1001,7 @@ void UpdateSearchUiState()
 
     if (placeholder != 0)
     {
-        const bool showPlaceholder = !hasQuery && !focused;
-        if (clearButton != 0)
-        {
-            const MyGUI::IntCoord editCoord = searchEdit->getCoord();
-            const int placeholderLeft = editCoord.left + 10;
-            const int placeholderTop = editCoord.top + 1;
-            int placeholderWidth = editCoord.width - 16;
-            if (placeholderWidth < 40)
-            {
-                placeholderWidth = 40;
-            }
-
-            const MyGUI::IntCoord placeholderCoord = placeholder->getCoord();
-            if (placeholderCoord.left != placeholderLeft
-                || placeholderCoord.top != placeholderTop
-                || placeholderCoord.width != placeholderWidth
-                || placeholderCoord.height != editCoord.height)
-            {
-                placeholder->setCoord(
-                    placeholderLeft,
-                    placeholderTop,
-                    placeholderWidth,
-                    editCoord.height);
-            }
-        }
-        placeholder->setVisible(showPlaceholder);
+        placeholder->setVisible(!hasQuery && !focused);
         placeholder->setTextColour(
             focused
                 ? MyGUI::Colour(0.82f, 0.82f, 0.82f, 1.0f)
@@ -1050,6 +1026,539 @@ void UpdateSearchUiState()
     }
 }
 
+namespace
+{
+void OnCraftingCategoryChanged(MyGUI::ComboBox*, std::size_t)
+{
+    MarkSearchFilterDirty("crafting_category_changed");
+}
+
+void OnCraftingSortChanged(MyGUI::ComboBox* combo, std::size_t index)
+{
+    if (!g_syncingRecipeSortCombo && index < combo->getItemCount())
+    {
+        const CraftingRecipeSortMode* mode = combo->getItemDataAt<CraftingRecipeSortMode>(index, false);
+        if (mode != 0)
+        {
+            g_recipeSortMode = *mode;
+            MarkSearchFilterDirty("crafting_sort_changed");
+        }
+    }
+}
+
+MyGUI::ComboBox* FindRecipeCombo(MyGUI::Widget* parent, const char* name)
+{
+    MyGUI::Widget* widget = FindNamedDescendantRecursive(parent, name, false);
+    return widget != 0 ? widget->castType<MyGUI::ComboBox>(false) : 0;
+}
+
+MyGUI::ComboBox* CreateRecipeCombo(
+    MyGUI::Widget* parent, const char* name, void (*onChange)(MyGUI::ComboBox*, std::size_t))
+{
+    const char* skin = "Kenshi_ComboBox";
+    MyGUI::ResourceManager* resources = MyGUI::ResourceManager::getInstancePtr();
+    if (resources == 0 || !resources->isExist(skin))
+    {
+        return 0;
+    }
+
+    MyGUI::ComboBox* combo = parent->createWidget<MyGUI::ComboBox>(skin, MyGUI::IntCoord(), MyGUI::Align::Default, name);
+    if (combo != 0)
+    {
+        combo->setComboModeDrop(true);
+        combo->eventComboChangePosition += MyGUI::newDelegate(onChange);
+    }
+    return combo;
+}
+
+MyGUI::ComboBox* SyncCraftingCategoryCombo(
+    MyGUI::Widget* container,
+    const char* name,
+    const CraftingCategoryOptions& options,
+    CraftingCategoryFilter& selection)
+{
+    MyGUI::ComboBox* combo = FindRecipeCombo(container, name);
+    selection = options.front();
+    if (options.size() == 1)
+    {
+        if (combo != 0)
+        {
+            combo->setVisible(false);
+            combo->removeAllItems();
+        }
+        return 0;
+    }
+
+    if (combo == 0)
+    {
+        combo = CreateRecipeCombo(container, name, &OnCraftingCategoryChanged);
+        if (combo == 0)
+        {
+            return 0;
+        }
+    }
+
+    const std::size_t oldIndex = combo->getIndexSelected();
+    CraftingCategoryFilter oldSelection = options.front();
+    if (oldIndex < combo->getItemCount())
+    {
+        const CraftingCategoryFilter* data = combo->getItemDataAt<CraftingCategoryFilter>(oldIndex, false);
+        if (data != 0)
+        {
+            oldSelection = *data;
+        }
+    }
+
+    bool itemsMatch = combo->getItemCount() == options.size();
+    std::size_t selectedIndex = 0;
+    for (std::size_t i = 0; i < options.size(); ++i)
+    {
+        if (itemsMatch)
+        {
+            const CraftingCategoryFilter* data = combo->getItemDataAt<CraftingCategoryFilter>(i, false);
+            itemsMatch = data != 0 && *data == options[i];
+        }
+        if (options[i] == oldSelection)
+        {
+            selectedIndex = i;
+        }
+    }
+
+    if (!itemsMatch)
+    {
+        combo->removeAllItems();
+        for (std::size_t i = 0; i < options.size(); ++i)
+        {
+            combo->addItem(GetCraftingCategoryLabel(options[i]), MyGUI::Any(options[i]));
+        }
+    }
+    if (!itemsMatch || oldIndex != selectedIndex)
+    {
+        combo->setIndexSelected(selectedIndex);
+    }
+    combo->setVisible(true);
+    selection = options[selectedIndex];
+    return combo;
+}
+
+MyGUI::ComboBox* SyncCraftingSortCombo(
+    MyGUI::Widget* content, bool canSort, bool hasArmor, bool hasMeleeWeapons, bool hasCoveragePart,
+    CraftingRecipeSortMode& selection)
+{
+    MyGUI::ComboBox* combo = FindRecipeCombo(content, kCraftingSortComboName);
+    if (!canSort)
+    {
+        if (combo != 0)
+        {
+            combo->setVisible(false);
+        }
+        return 0;
+    }
+
+    if (combo == 0)
+    {
+        combo = CreateRecipeCombo(content, kCraftingSortComboName, &OnCraftingSortChanged);
+        if (combo == 0)
+        {
+            return 0;
+        }
+    }
+
+    std::vector<CraftingRecipeSortMode> options;
+    std::size_t selectedIndex = 0;
+    for (int i = 0; i < CraftingRecipeSortModeCount; ++i)
+    {
+        const CraftingRecipeSortMode mode = static_cast<CraftingRecipeSortMode>(i);
+        const CraftingRecipeSortStat stat = GetCraftingRecipeSortStat(mode);
+        const bool supported = stat == CraftingSortStatNone
+            || (stat == CraftingSortStatCoverage ? hasCoveragePart
+                : (IsCraftingWeaponSortStat(stat) ? hasMeleeWeapons : hasArmor));
+        if (!supported)
+        {
+            continue;
+        }
+        if (mode == g_recipeSortMode)
+        {
+            selectedIndex = options.size();
+        }
+        options.push_back(mode);
+    }
+    selection = options[selectedIndex];
+
+    bool itemsMatch = combo->getItemCount() == options.size();
+    for (std::size_t i = 0; itemsMatch && i < options.size(); ++i)
+    {
+        const CraftingRecipeSortMode* mode = combo->getItemDataAt<CraftingRecipeSortMode>(i, false);
+        itemsMatch = mode != 0 && *mode == options[i];
+    }
+
+    g_syncingRecipeSortCombo = true;
+    if (!itemsMatch)
+    {
+        combo->removeAllItems();
+        for (std::size_t i = 0; i < options.size(); ++i)
+        {
+            const CraftingRecipeSortMode mode = options[i];
+            combo->addItem(GetCraftingRecipeSortLabel(mode), MyGUI::Any(mode));
+        }
+    }
+    if (combo->getIndexSelected() != selectedIndex)
+    {
+        combo->setIndexSelected(selectedIndex);
+    }
+    g_syncingRecipeSortCombo = false;
+    combo->setVisible(true);
+    return combo;
+}
+
+std::string SyncCoveragePartCombo(MyGUI::Widget* content, const CraftingCoveragePartOptions& parts)
+{
+    MyGUI::ComboBox* combo = FindRecipeCombo(content, kCoveragePartComboName);
+    if (parts.empty())
+    {
+        if (combo != 0)
+        {
+            combo->setVisible(false);
+        }
+        return std::string();
+    }
+    if (combo == 0)
+    {
+        combo = CreateRecipeCombo(content, kCoveragePartComboName, &OnCraftingCategoryChanged);
+        if (combo == 0)
+        {
+            return std::string();
+        }
+    }
+
+    typedef std::multimap<std::string, std::string> NamedParts;
+    NamedParts namedParts;
+    for (CraftingCoveragePartOptions::const_iterator part = parts.begin(); part != parts.end(); ++part)
+    {
+        namedParts.insert(std::make_pair(part->second, part->first));
+    }
+    typedef std::pair<std::string, std::string> PartOption;
+    std::vector<PartOption> options(1, PartOption("", "Any Body Part"));
+    for (NamedParts::const_iterator part = namedParts.begin(); part != namedParts.end(); ++part)
+    {
+        const std::string label = namedParts.count(part->first) > 1
+            ? part->first + " (" + part->second + ")" : part->first;
+        options.push_back(PartOption(part->second, label));
+    }
+
+    const std::size_t oldIndex = combo->getIndexSelected();
+    const std::string* previous = oldIndex < combo->getItemCount()
+        ? combo->getItemDataAt<std::string>(oldIndex, false) : 0;
+    std::size_t selected = 0;
+    bool itemsMatch = options.size() == combo->getItemCount();
+    for (std::size_t i = 0; i < options.size(); ++i)
+    {
+        if (previous != 0 && *previous == options[i].first)
+        {
+            selected = i;
+        }
+        if (itemsMatch)
+        {
+            const std::string* item = combo->getItemDataAt<std::string>(i, false);
+            itemsMatch = item != 0 && *item == options[i].first && combo->getItemNameAt(i) == options[i].second;
+        }
+    }
+    if (!itemsMatch)
+    {
+        combo->removeAllItems();
+        for (std::size_t i = 0; i < options.size(); ++i)
+        {
+            combo->addItem(options[i].second, MyGUI::Any(options[i].first));
+        }
+    }
+    if (combo->getIndexSelected() != selected)
+    {
+        combo->setIndexSelected(selected);
+    }
+    combo->setVisible(true);
+    return options[selected].first;
+}
+
+void OnCoveragePercentChanged(MyGUI::EditBox* edit)
+{
+    const std::string text = edit->getOnlyText().asUTF8();
+    std::string digits;
+    for (std::size_t i = 0; i < text.size() && digits.size() < 3; ++i)
+    {
+        if (text[i] >= '0' && text[i] <= '9')
+        {
+            digits += text[i];
+        }
+    }
+    if (std::atoi(digits.c_str()) > 100)
+    {
+        digits = "100";
+    }
+    if (digits != text)
+    {
+        edit->setOnlyText(digits);
+    }
+    MarkSearchFilterDirty("crafting_coverage_changed");
+}
+
+int SyncCoverageThreshold(MyGUI::Widget* content, bool hasCoveragePart)
+{
+    MyGUI::Widget* widget = FindNamedDescendantRecursive(content, kCoveragePercentName, false);
+    MyGUI::EditBox* edit = widget != 0 ? widget->castType<MyGUI::EditBox>(false) : 0;
+    MyGUI::Widget* label = FindNamedDescendantRecursive(content, kCoveragePercentLabelName, false);
+    if (hasCoveragePart && label == 0)
+    {
+        MyGUI::TextBox* caption = content->createWidget<MyGUI::TextBox>(
+            "Kenshi_TextboxStandardText", MyGUI::IntCoord(0, 0, 44, 26), MyGUI::Align::Default, kCoveragePercentLabelName);
+        if (caption != 0)
+        {
+            caption->setCaption("Min %");
+            caption->setTextAlign(MyGUI::Align::Left | MyGUI::Align::VCenter);
+            caption->setTextColour(MyGUI::Colour(0.83f, 0.83f, 0.83f, 1.0f));
+            caption->setNeedMouseFocus(false);
+            label = caption;
+        }
+    }
+    if (hasCoveragePart && label != 0 && edit == 0)
+    {
+        edit = content->createWidget<MyGUI::EditBox>(
+            "Kenshi_EditBox", MyGUI::IntCoord(0, 0, 42, 26), MyGUI::Align::Default, kCoveragePercentName);
+        if (edit != 0)
+        {
+            edit->setMaxTextLength(3);
+            edit->setOnlyText("0");
+            edit->eventEditTextChange += MyGUI::newDelegate(&OnCoveragePercentChanged);
+        }
+    }
+    if (label != 0)
+    {
+        label->setVisible(hasCoveragePart && edit != 0);
+    }
+    if (edit != 0)
+    {
+        edit->setVisible(hasCoveragePart);
+        return hasCoveragePart ? std::atoi(edit->getOnlyText().asUTF8().c_str()) : 0;
+    }
+    return 0;
+}
+
+void LayoutSearchRow(int width, int rowHeight)
+{
+    MyGUI::TextBox* count = FindSearchCountTextBox();
+    MyGUI::Button* clear = FindSearchClearButton();
+    MyGUI::EditBox* edit = FindSearchEditBox();
+    MyGUI::TextBox* placeholder = FindSearchPlaceholderTextBox();
+    int right = width - kPanelPadding;
+
+    const bool showCount = ShouldShowAnySearchCountMetric();
+    count->setVisible(showCount);
+    if (showCount)
+    {
+        count->setCoord(right - kSearchCountWidth, kPanelPadding, kSearchCountWidth, rowHeight);
+        right -= kSearchCountWidth + kPanelGap;
+    }
+
+    clear->setVisible(g_showSearchClearButton);
+    if (g_showSearchClearButton)
+    {
+        const int buttonSize = (std::min)(rowHeight, 32);
+        clear->setCoord(right - buttonSize, kPanelPadding + (rowHeight - buttonSize) / 2, buttonSize, buttonSize);
+        right -= buttonSize + kPanelGap;
+    }
+    edit->setCoord(kPanelPadding, kPanelPadding, right - kPanelPadding, rowHeight);
+    placeholder->setCoord(kPanelPadding + 10, kPanelPadding, edit->getWidth() - 16, rowHeight);
+}
+
+void SetFilterLabel(MyGUI::Widget* content, const char* name, const char* text, bool show)
+{
+    MyGUI::Widget* widget = FindNamedDescendantRecursive(content, name, false);
+    MyGUI::TextBox* label = widget != 0 ? widget->castType<MyGUI::TextBox>(false) : 0;
+    if (label == 0 && show)
+    {
+        label = content->createWidget<MyGUI::TextBox>("Kenshi_TextboxStandardText",
+            MyGUI::IntCoord(0, 0, kFilterLabelWidth, 26), MyGUI::Align::Default, name);
+        if (label != 0)
+        {
+            label->setNeedMouseFocus(false);
+            label->setTextAlign(MyGUI::Align::Left | MyGUI::Align::VCenter);
+            label->setTextColour(MyGUI::Colour(0.83f, 0.83f, 0.83f, 1.0f));
+        }
+    }
+    if (label != 0)
+    {
+        label->setVisible(show);
+        label->setCaption(text);
+    }
+}
+
+int MeasureRecipeFilterWidth(MyGUI::Widget* content, MyGUI::ComboBox* const* combos, std::size_t count)
+{
+    MyGUI::Widget* widget = FindNamedDescendantRecursive(content, kComboTextMeasureName, false);
+    MyGUI::TextBox* measure = widget != 0 ? widget->castType<MyGUI::TextBox>(false) : 0;
+    if (measure == 0)
+    {
+        measure = content->createWidget<MyGUI::TextBox>("Kenshi_TextboxStandardText",
+            MyGUI::IntCoord(0, 0, 1024, 26), MyGUI::Align::Default, kComboTextMeasureName);
+        if (measure == 0)
+        {
+            return kPanelMinWidth;
+        }
+        measure->setVisible(false);
+        measure->setNeedMouseFocus(false);
+    }
+    int textWidth = 0;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        MyGUI::ComboBox* combo = combos[i];
+        if (combo == 0)
+        {
+            continue;
+        }
+        for (std::size_t item = 0; item < combo->getItemCount(); ++item)
+        {
+            measure->setCaption(combo->getItemNameAt(item));
+            textWidth = (std::max)(textWidth, measure->getTextSize().width);
+        }
+    }
+    return (std::max)(kPanelMinWidth, 2 * kPanelPadding + kFilterLabelWidth + kPanelGap + textWidth + kComboTextPadding);
+}
+
+void LayoutFilterRow(MyGUI::Widget* content, MyGUI::ComboBox* combo, const char* labelName,
+    int width, int height, int& top)
+{
+    if (combo == 0 || !combo->getVisible())
+    {
+        return;
+    }
+    MyGUI::Widget* label = FindNamedDescendantRecursive(content, labelName, false);
+    const int labelSpace = label != 0 ? kFilterLabelWidth + kPanelGap : 0;
+    if (label != 0)
+    {
+        label->setCoord(kPanelPadding, top, kFilterLabelWidth, height);
+    }
+    combo->setCoord(kPanelPadding + labelSpace, top, width - labelSpace, height);
+    top += height + kPanelGap;
+}
+
+void LayoutFloatingPanel()
+{
+    MyGUI::Widget* root = g_recipePanel.root;
+    MyGUI::Widget* content = g_recipePanel.content;
+    if (root == 0 || content == 0)
+    {
+        return;
+    }
+
+    MyGUI::ComboBox* category = FindRecipeCombo(content, kCraftingCategoryComboName);
+    MyGUI::ComboBox* armorClass = FindRecipeCombo(content, kCraftingArmorClassComboName);
+    MyGUI::ComboBox* coveragePart = FindRecipeCombo(content, kCoveragePartComboName);
+    MyGUI::ComboBox* sort = FindRecipeCombo(content, kCraftingSortComboName);
+    const bool showCategory = category != 0 && category->getVisible();
+    const bool showArmorClass = armorClass != 0 && armorClass->getVisible();
+    const bool showCoverage = coveragePart != 0 && coveragePart->getVisible();
+    const bool showSort = sort != 0 && sort->getVisible();
+    MyGUI::Widget* percent = FindNamedDescendantRecursive(content, kCoveragePercentName, false);
+    MyGUI::Widget* percentLabel = FindNamedDescendantRecursive(content, kCoveragePercentLabelName, false);
+    const bool showThreshold = showCoverage && percent != 0 && percentLabel != 0 && percent->getVisible();
+
+    const MyGUI::IntSize view = GetRecipePanelViewport();
+    if (view.width < kCollapsedPanelWidth || view.height < kPanelHeaderHeight)
+    {
+        return;
+    }
+    g_recipePanel.viewport = view;
+    g_recipePanel.minimumHeight = FilterPanelMinimumHeight(
+        1 + showCategory + showArmorClass + showCoverage + showThreshold + showSort);
+    const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(view, g_recipePanel.minimumWidth, g_recipePanel.minimumHeight);
+    const bool collapsed = g_filterPanelCollapsed || view.width < kPanelMinWidth
+        || view.height < g_recipePanel.minimumHeight;
+    MyGUI::IntCoord coord = root->getCoord();
+    coord.width = collapsed ? (std::min)(kCollapsedPanelWidth, view.width) : expandedSize.width;
+    coord.height = collapsed ? kPanelHeaderHeight : expandedSize.height;
+    root->setCoord(ClampSearchContainerCoord(coord));
+
+    MyGUI::Widget* header = FindNamedDescendantRecursive(root, kCraftingHeaderName, false);
+    MyGUI::Widget* handle = FindNamedDescendantRecursive(header, kSearchDragHandleName, false);
+    MyGUI::Widget* collapse = FindNamedDescendantRecursive(header, kCraftingCollapseButtonName, false);
+    const int collapseLeft = coord.width - kPanelPadding - 26;
+    header->setSize(coord.width, kPanelHeaderHeight);
+    handle->setCoord(kPanelPadding, 0, collapseLeft - kPanelPadding - kPanelGap, kPanelHeaderHeight);
+    collapse->setPosition(collapseLeft, 6);
+    collapse->castType<MyGUI::Button>()->setCaption(collapsed ? "+" : "-");
+
+    content->setVisible(!collapsed);
+    if (collapsed)
+    {
+        return;
+    }
+
+    content->setSize(coord.width, coord.height - kPanelHeaderHeight);
+    const int rowHeight = g_searchInputConfiguredHeight;
+    LayoutSearchRow(content->getWidth(), rowHeight);
+
+    const int rowWidth = content->getWidth() - 2 * kPanelPadding;
+    int rowTop = kPanelPadding + rowHeight + kPanelGap;
+    LayoutFilterRow(content, category, kCraftingCategoryLabelName, rowWidth, rowHeight, rowTop);
+    LayoutFilterRow(content, armorClass, kCraftingArmorClassLabelName, rowWidth, rowHeight, rowTop);
+    LayoutFilterRow(content, coveragePart, kCoveragePartLabelName, rowWidth, rowHeight, rowTop);
+    if (showThreshold)
+    {
+        percentLabel->setCoord(kPanelPadding, rowTop, kFilterLabelWidth, rowHeight);
+        percent->setCoord(kPanelPadding + kFilterLabelWidth + kPanelGap, rowTop, 42, rowHeight);
+        rowTop += rowHeight + kPanelGap;
+    }
+    LayoutFilterRow(content, sort, kCraftingSortLabelName, rowWidth, rowHeight, rowTop);
+
+    MyGUI::Widget* grip = FindNamedDescendantRecursive(content, kCraftingResizeGripName, false);
+    grip->setCoord(content->getWidth() - kResizeGripSize - 3, content->getHeight() - kResizeGripSize - 3,
+        kResizeGripSize, kResizeGripSize);
+}
+}
+
+CraftingCategorySelection UpdateCraftingCategoryControls(
+    const CraftingRecipeCategories& recipes, bool canSort, const CraftingCoveragePartOptions& parts)
+{
+    CraftingCategorySelection selection;
+    MyGUI::Widget* container = g_recipePanel.content;
+    MyGUI::EditBox* searchEdit = FindSearchEditBox();
+    if (container == 0 || searchEdit == 0)
+    {
+        return selection;
+    }
+
+    const CraftingCategoryOptions categories = GetCraftingCategoryOptions(recipes);
+    MyGUI::ComboBox* category = SyncCraftingCategoryCombo(
+        container, kCraftingCategoryComboName, categories, selection.category);
+    const CraftingCategoryOptions armorClasses = GetCraftingArmorClassOptions(
+        category != 0 ? recipes : CraftingRecipeCategories(), selection.category);
+    MyGUI::ComboBox* armorClass = SyncCraftingCategoryCombo(
+        container, kCraftingArmorClassComboName, armorClasses, selection.armorClass);
+    bool hasArmor = false;
+    bool hasWeapons = false;
+    bool hasMeleeWeapons = false;
+    for (CraftingRecipeCategories::const_iterator recipe = recipes.begin(); recipe != recipes.end(); ++recipe)
+    {
+        hasArmor = hasArmor || recipe->kind == CraftingRecipeCategory::Armor;
+        hasWeapons = hasWeapons || recipe->kind == CraftingRecipeCategory::Weapon;
+        hasMeleeWeapons = hasMeleeWeapons || recipe->supportsWeaponStats;
+    }
+    selection.coveragePart = SyncCoveragePartCombo(container, parts);
+    const bool hasCoveragePart = !selection.coveragePart.empty();
+    selection.minimumCoverage = SyncCoverageThreshold(container, hasCoveragePart);
+    MyGUI::ComboBox* sort = SyncCraftingSortCombo(
+        container, canSort, hasArmor, hasMeleeWeapons, hasCoveragePart, selection.sortMode);
+    MyGUI::ComboBox* coverage = parts.empty() ? 0 : FindRecipeCombo(container, kCoveragePartComboName);
+    const char* categoryLabel = hasArmor && hasWeapons ? "Category" : (hasArmor ? "Slot" : "Weapon");
+    SetFilterLabel(container, kCraftingCategoryLabelName, categoryLabel, category != 0);
+    SetFilterLabel(container, kCraftingArmorClassLabelName, "Class", armorClass != 0);
+    SetFilterLabel(container, kCoveragePartLabelName, "Coverage", coverage != 0);
+    SetFilterLabel(container, kCraftingSortLabelName, "Sort", sort != 0);
+    MyGUI::ComboBox* combos[] = { category, armorClass, coverage, sort };
+    g_recipePanel.minimumWidth = MeasureRecipeFilterWidth(container, combos, sizeof(combos) / sizeof(combos[0]));
+    LayoutFloatingPanel();
+    return selection;
+}
+
 void UpdateSearchCountText(
     std::size_t visibleEntryCount,
     std::size_t totalEntryCount,
@@ -1064,17 +1573,9 @@ void UpdateSearchCountText(
         return;
     }
 
-    countText->setVisible(ShouldShowAnySearchCountMetric());
     const std::string caption =
         BuildSearchCountCaption(visibleEntryCount, totalEntryCount, visibleQuantity);
     countText->setCaption(caption);
-    const MyGUI::IntCoord countCoord = countText->getCoord();
-    const int desiredWidth = ResolveSearchCountCaptionWidth(caption, countCoord.width);
-    if (desiredWidth > 0 && desiredWidth != countCoord.width)
-    {
-        const int countRight = countCoord.left + countCoord.width;
-        countText->setCoord(countRight - desiredWidth, countCoord.top, desiredWidth, countCoord.height);
-    }
     UpdateSearchUiState();
 }
 
@@ -1091,7 +1592,7 @@ void TickSearchContainerDrag()
     {
         const int deltaX = mouseX - g_searchContainerDragLastMouseX;
         const int deltaY = mouseY - g_searchContainerDragLastMouseY;
-        MoveSearchContainerByDelta(deltaX, deltaY);
+        MoveOrResizeSearchContainer(deltaX, deltaY);
         g_searchContainerDragLastMouseX = mouseX;
         g_searchContainerDragLastMouseY = mouseY;
     }
@@ -1102,12 +1603,18 @@ void TickSearchContainerDrag()
     }
 }
 
-bool BuildControlsScaffold(
-    MyGUI::Widget* parent,
-    int topOverride,
+static bool BuildControlsScaffold(
+    MyGUI::Widget* target,
+    MyGUI::Widget* scope,
     const SearchUiCallbacks& callbacks)
 {
-    if (parent == 0)
+    MyGUI::Gui* gui = MyGUI::Gui::getInstancePtr();
+    MyGUI::WidgetManager* widgets = MyGUI::WidgetManager::getInstancePtr();
+    MyGUI::LayerManager* layers = MyGUI::LayerManager::getInstancePtr();
+    const MyGUI::IntSize view = GetRecipePanelViewport();
+    const char* layer = "Window";
+    if (target == 0 || scope == 0 || gui == 0 || widgets == 0 || layers == 0 || !layers->isExist(layer)
+        || view.width < kCollapsedPanelWidth || view.height < kPanelHeaderHeight)
     {
         return false;
     }
@@ -1120,196 +1627,119 @@ bool BuildControlsScaffold(
         return false;
     }
 
-    const int outerPadding = 8;
-    const int rowHeight = g_searchInputConfiguredHeight;
-    const int handleWidth = 28;
-    const int handleGap = 6;
-    const int preferredCountWidth = ResolvePreferredSearchCountTextWidth();
-    const int preferredCountGap = preferredCountWidth > 0 ? kSearchCountGap : 0;
-    const int searchInputLeft = outerPadding + handleWidth + handleGap;
-    const int desiredContainerWidth =
-        searchInputLeft
-        + g_searchInputConfiguredWidth
-        + outerPadding
-        + preferredCountWidth
-        + preferredCountGap;
-    const int maxContainerWidth =
-        parent->getWidth() > 8 ? parent->getWidth() - 8 : parent->getWidth();
-    int containerWidth = desiredContainerWidth;
-    if (maxContainerWidth > 0 && containerWidth > maxContainerWidth)
+    const bool recipeTab = FindNamedDescendantByTokenRecursive(scope, kCraftingRecipesPanelName, true) != 0;
+    const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(
+        view, kPanelMinWidth, FilterPanelMinimumHeight(recipeTab ? 5 : 1));
+    MyGUI::IntCoord coord(kPanelPadding, kPanelPadding, expandedSize.width, expandedSize.height);
+    if (g_searchContainerPositionCustomized && g_searchContainerPositionOnScreen)
     {
-        containerWidth = maxContainerWidth;
+        coord.left = g_searchContainerStoredLeft;
+        coord.top = g_searchContainerStoredTop;
     }
-    if (containerWidth < 240)
+    else
     {
-        containerWidth = 240;
-    }
-    if (maxContainerWidth > 0 && containerWidth > maxContainerWidth)
-    {
-        containerWidth = maxContainerWidth;
-    }
-
-    const int containerHeight = rowHeight + (outerPadding * 2);
-
-    const int rightMargin = 16;
-    int left = parent->getWidth() - containerWidth - rightMargin;
-    if (left < 8)
-    {
-        left = 8;
-    }
-
-    int top = topOverride >= 0 ? topOverride : ResolveControlsTop(parent);
-    const int maxTop = parent->getHeight() - containerHeight - 8;
-    if (top > maxTop)
-    {
-        top = maxTop;
-    }
-    if (top < 8)
-    {
-        top = 8;
-    }
-
-    MyGUI::IntCoord containerCoord(left, top, containerWidth, containerHeight);
-    if (g_searchContainerPositionCustomized)
-    {
-        containerCoord.left = g_searchContainerStoredLeft;
-        containerCoord.top = g_searchContainerStoredTop;
-    }
-    containerCoord = ClampSearchContainerCoord(parent, containerCoord);
-
-    if (ShouldLogDebug())
-    {
-        const MyGUI::IntCoord parentCoord = parent->getCoord();
-        std::stringstream line;
-        line << "building controls scaffold"
-             << " parent=" << SafeWidgetName(parent)
-             << " parent_coord=(" << parentCoord.left << "," << parentCoord.top << ","
-             << parentCoord.width << "," << parentCoord.height << ")"
-             << " container_coord=(" << containerCoord.left << "," << containerCoord.top << ","
-             << containerCoord.width << "," << containerCoord.height << ")"
-             << " customized_position=" << (g_searchContainerPositionCustomized ? "true" : "false")
-             << " search_only=true";
-        LogDebugLine(line.str());
-    }
-
-    MyGUI::Widget* container = parent->createWidget<MyGUI::Widget>(
-        "Kenshi_GenericTextBoxFlatSkin",
-        containerCoord,
-        MyGUI::Align::Right | MyGUI::Align::Top,
-        kControlsContainerName);
-    if (container == 0)
-    {
-        LogErrorLine("failed to create controls container");
-        return false;
-    }
-    const int searchInputAvailableWidth = containerWidth - searchInputLeft - outerPadding;
-    int countWidth = ResolveSearchCountTextWidth(searchInputAvailableWidth);
-    int countGap = countWidth > 0 ? kSearchCountGap : 0;
-    int searchAreaWidth = searchInputAvailableWidth - countWidth - countGap;
-    if (searchAreaWidth < 120)
-    {
-        searchAreaWidth = 120;
-    }
-    int clearButtonWidth = rowHeight;
-    if (clearButtonWidth > 32)
-    {
-        clearButtonWidth = 32;
-    }
-    if (clearButtonWidth < 18)
-    {
-        clearButtonWidth = 18;
-    }
-    const int clearButtonTop = outerPadding + ((rowHeight - clearButtonWidth) / 2);
-
-    MyGUI::Button* dragHandle = container->createWidget<MyGUI::Button>(
-        "Kenshi_Button1",
-        MyGUI::IntCoord(outerPadding, outerPadding, handleWidth, rowHeight),
-        MyGUI::Align::Left | MyGUI::Align::Top,
-        kSearchDragHandleName);
-    if (dragHandle == 0)
-    {
-        LogErrorLine("failed to create search drag handle");
-        DestroyWidgetDirect(container);
-        return false;
-    }
-    dragHandle->setCaption("::");
-    dragHandle->setNeedMouseFocus(true);
-    dragHandle->eventMouseButtonPressed += MyGUI::newDelegate(&OnSearchDragHandleMousePressed);
-    dragHandle->eventMouseMove += MyGUI::newDelegate(&OnSearchDragHandleMouseMove);
-    dragHandle->eventMouseDrag += MyGUI::newDelegate(&OnSearchDragHandleMouseDrag);
-    dragHandle->eventMouseButtonReleased += MyGUI::newDelegate(&OnSearchDragHandleMouseReleased);
-
-    if (countWidth > 0)
-    {
-        MyGUI::TextBox* countText = container->createWidget<MyGUI::TextBox>(
-            "Kenshi_TextboxStandardText",
-            MyGUI::IntCoord(containerWidth - outerPadding - countWidth, outerPadding, countWidth, rowHeight),
-            MyGUI::Align::Left | MyGUI::Align::Top,
-            kSearchCountTextName);
-        if (countText == 0)
+        const MyGUI::Window* window = FindOwningWindow(scope);
+        const MyGUI::IntCoord bounds = window != 0 ? window->getAbsoluteCoord() : scope->getAbsoluteCoord();
+        if (g_filterPanelCollapsed || !PlacePanelOutsideWindow(bounds, view, coord))
         {
-            LogErrorLine("failed to create search count text");
-            DestroyWidgetDirect(container);
-            return false;
+            g_filterPanelCollapsed = true;
+            coord.width = kCollapsedPanelWidth;
+            coord.height = kPanelHeaderHeight;
+            PlacePanelOutsideWindow(bounds, view, coord);
         }
-        countText->setTextAlign(MyGUI::Align::Right | MyGUI::Align::VCenter);
-        UpdateSearchCountText(0, 0, 0);
     }
+
+    MyGUI::Widget* root = gui->createWidget<MyGUI::Widget>(
+        "PanelEmpty",
+        ClampSearchContainerCoord(coord),
+        MyGUI::Align::Default,
+        layer,
+        kControlsContainerName);
+    if (root == 0)
+    {
+        return false;
+    }
+    root->setNeedMouseFocus(false);
+    root->setInheritsPick(true);
+
+    MyGUI::Widget* container = root->createWidget<MyGUI::Widget>(
+        "Kenshi_GenericWindowSkin", MyGUI::IntCoord(0, kPanelHeaderHeight, expandedSize.width, kPanelMinBodyHeight),
+        MyGUI::Align::Default, kCraftingFilterContentName);
+    MyGUI::Widget* header = root->createWidget<MyGUI::Widget>(
+        "Kenshi_GenericWindowHeaderSkin", MyGUI::IntCoord(0, 0, coord.width, kPanelHeaderHeight),
+        MyGUI::Align::Default, kCraftingHeaderName);
+    if (container == 0 || header == 0)
+    {
+        DestroyWidgetDirect(root);
+        return false;
+    }
+    container->setNeedMouseFocus(false);
+    container->setInheritsPick(true);
+    header->setNeedMouseFocus(false);
+    header->setInheritsPick(true);
+
+    MyGUI::TextBox* dragHandle = header->createWidget<MyGUI::TextBox>(
+        "Kenshi_TextboxPaintedText", MyGUI::IntCoord(kPanelPadding, 0, 110, kPanelHeaderHeight),
+        MyGUI::Align::Default, kSearchDragHandleName);
+    MyGUI::Button* collapse = header->createWidget<MyGUI::Button>(
+        "Kenshi_Button1", MyGUI::IntCoord(0, 0, 26, 26),
+        MyGUI::Align::Default, kCraftingCollapseButtonName);
+    MyGUI::TextBox* grip = container->createWidget<MyGUI::TextBox>(
+        "Kenshi_TextboxStandardText", MyGUI::IntCoord(0, 0, kResizeGripSize, kResizeGripSize),
+        MyGUI::Align::Default, kCraftingResizeGripName);
+    if (dragHandle == 0 || collapse == 0 || grip == 0)
+    {
+        DestroyWidgetDirect(root);
+        return false;
+    }
+    dragHandle->setCaption("Crafting filters");
+    dragHandle->setTextAlign(MyGUI::Align::HCenter | MyGUI::Align::VCenter);
+    BindPanelDrag(dragHandle);
+    collapse->eventMouseButtonClick += MyGUI::newDelegate(&OnCollapseFilterPanel);
+    grip->setCaption("//");
+    grip->setTextAlign(MyGUI::Align::HCenter | MyGUI::Align::VCenter);
+    grip->setTextColour(MyGUI::Colour(0.62f, 0.62f, 0.62f, 1.0f));
+    BindPanelDrag(grip);
 
     MyGUI::EditBox* searchEdit = container->createWidget<MyGUI::EditBox>(
-        "Kenshi_EditBox",
-        MyGUI::IntCoord(searchInputLeft, outerPadding, searchAreaWidth, rowHeight),
-        MyGUI::Align::Left | MyGUI::Align::Top,
-        kSearchEditName);
-    if (searchEdit == 0)
+        "Kenshi_EditBox", MyGUI::IntCoord(0, 0, 140, 26), MyGUI::Align::Default, kSearchEditName);
+    MyGUI::TextBox* placeholder = container->createWidget<MyGUI::TextBox>(
+        "Kenshi_TextboxStandardText", MyGUI::IntCoord(0, 0, 140, 26), MyGUI::Align::Default, kSearchPlaceholderName);
+    MyGUI::Button* clearButton = container->createWidget<MyGUI::Button>(
+        "Kenshi_Button1", MyGUI::IntCoord(0, 0, 26, 26), MyGUI::Align::Default, kSearchClearButtonName);
+    MyGUI::TextBox* countText = container->createWidget<MyGUI::TextBox>(
+        "Kenshi_TextboxStandardText", MyGUI::IntCoord(0, 0, kSearchCountWidth, 26), MyGUI::Align::Default, kSearchCountTextName);
+    if (searchEdit == 0 || placeholder == 0 || clearButton == 0 || countText == 0)
     {
-        LogErrorLine("failed to create search edit box");
-        DestroyWidgetDirect(container);
+        LogErrorLine("failed to create floating panel search controls");
+        DestroyWidgetDirect(root);
         return false;
     }
+
     searchEdit->setOnlyText(g_searchQueryRaw);
     searchEdit->eventEditTextChange += MyGUI::newDelegate(callbacks.onSearchTextChanged);
     searchEdit->eventKeySetFocus += MyGUI::newDelegate(callbacks.onSearchEditFocusChanged);
     searchEdit->eventKeyLostFocus += MyGUI::newDelegate(callbacks.onSearchEditFocusChanged);
     searchEdit->eventKeyButtonPressed += MyGUI::newDelegate(&OnSearchEditKeyPressed);
     searchEdit->eventKeyButtonReleased += MyGUI::newDelegate(&OnSearchEditKeyReleased);
-
-    MyGUI::TextBox* placeholder = container->createWidget<MyGUI::TextBox>(
-        "Kenshi_TextboxStandardText",
-        MyGUI::IntCoord(searchInputLeft + 10, outerPadding + 1, searchAreaWidth - 16, rowHeight),
-        MyGUI::Align::Left | MyGUI::Align::Top,
-        kSearchPlaceholderName);
-    if (placeholder == 0)
-    {
-        LogErrorLine("failed to create search placeholder");
-        DestroyWidgetDirect(container);
-        return false;
-    }
     placeholder->setCaption("Search items...");
     placeholder->setTextAlign(MyGUI::Align::Left | MyGUI::Align::VCenter);
     placeholder->setNeedMouseFocus(true);
     placeholder->eventMouseButtonClick += MyGUI::newDelegate(callbacks.onSearchPlaceholderClicked);
-
-    MyGUI::Button* clearButton = container->createWidget<MyGUI::Button>(
-        "Kenshi_Button1",
-        MyGUI::IntCoord(
-            searchInputLeft + searchAreaWidth - clearButtonWidth,
-            clearButtonTop,
-            clearButtonWidth,
-            clearButtonWidth),
-        MyGUI::Align::Left | MyGUI::Align::Top,
-        kSearchClearButtonName);
-    if (clearButton == 0)
-    {
-        LogErrorLine("failed to create search clear button");
-        DestroyWidgetDirect(container);
-        return false;
-    }
     clearButton->setCaption("x");
     clearButton->eventMouseButtonClick += MyGUI::newDelegate(callbacks.onSearchClearButtonClicked);
+    countText->setTextAlign(MyGUI::Align::Right | MyGUI::Align::VCenter);
+    countText->setNeedMouseFocus(false);
 
+    widgets->registerUnlinker(&g_recipePanel);
+    g_recipePanel.manager = widgets;
+    g_recipePanel.root = root;
+    g_recipePanel.content = container;
+    g_recipePanel.target = target;
+    g_recipePanel.scope = scope;
+    LayoutFloatingPanel();
+    UpdateSearchCountText(0, 0, 0);
     FocusSearchEditIfRequested(searchEdit, "controls_built");
-    UpdateSearchUiState();
     RememberSearchEditSnapshot(searchEdit);
 
     return true;
@@ -1674,41 +2104,16 @@ void OnSearchTextChanged(MyGUI::EditBox* sender)
 void DestroyControlsIfPresent()
 {
     MyGUI::Widget* controlsContainer = FindControlsContainer();
-    if (controlsContainer == 0)
+    FinalizeSearchContainerDrag("controls_closed");
+    g_recipePanel.Disconnect();
+    if (controlsContainer != 0)
     {
-        ResetPendingSearchEditShortcut();
-        ResetSearchEditSnapshot();
-        g_searchContainerDragging = false;
-        g_searchContainerDragStartLeft = 0;
-        g_searchContainerDragStartTop = 0;
-        g_controlsWereInjected = false;
-        g_searchFilterDirty = false;
-        ResetObservedTraderEntriesState();
-        g_pendingSlashFocusBaseQuery.clear();
-        g_pendingSlashFocusTextSuppression = false;
-        g_suppressNextSearchEditChangeEvent = false;
-        g_cachedHoveredWidgetInventory = 0;
-        g_cachedHoveredWidgetInventorySignature.clear();
-        ClearLockedKeysetSource();
-        return;
-    }
-
-    const MyGUI::IntCoord coord = controlsContainer->getCoord();
-    if (g_searchContainerPositionCustomized)
-    {
-        g_searchContainerStoredLeft = coord.left;
-        g_searchContainerStoredTop = coord.top;
+        DestroyWidgetDirect(controlsContainer);
+        LogDebugLine("controls container destroyed");
     }
     g_searchContainerDragging = false;
     g_searchContainerDragStartLeft = 0;
     g_searchContainerDragStartTop = 0;
-
-    MyGUI::Gui* gui = MyGUI::Gui::getInstancePtr();
-    if (gui != 0)
-    {
-        gui->destroyWidget(controlsContainer);
-        LogDebugLine("controls container destroyed");
-    }
 
     g_controlsWereInjected = false;
     ResetPendingSearchEditShortcut();
@@ -1760,7 +2165,6 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
     {
         controlsParent = parent;
     }
-    int topOverride = -1;
 
     DestroyControlsIfPresent();
     SearchUiCallbacks callbacks;
@@ -1768,7 +2172,7 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
     callbacks.onSearchEditFocusChanged = &OnSearchEditKeyFocusChanged;
     callbacks.onSearchPlaceholderClicked = &OnSearchPlaceholderClicked;
     callbacks.onSearchClearButtonClicked = &OnSearchClearButtonClicked;
-    if (!BuildControlsScaffold(controlsParent, topOverride, callbacks))
+    if (!BuildControlsScaffold(parent, controlsParent, callbacks))
     {
         LogErrorLine("failed to build phase 2 controls scaffold");
         return false;
@@ -1793,6 +2197,10 @@ bool TryInjectControlsToHoveredWindowDirect()
     if (inputManager == 0)
     {
         LogWarnLine("manual attach failed: MyGUI InputManager unavailable");
+        return false;
+    }
+    if (inputManager->isModalAny())
+    {
         return false;
     }
 
@@ -1848,16 +2256,37 @@ void EnsureControlsInjectedIfEnabled()
         return;
     }
 
+    MyGUI::InputManager* input = MyGUI::InputManager::getInstancePtr();
+    const bool hasModal = input != 0 && input->isModalAny();
     MyGUI::Widget* controlsContainer = FindControlsContainer();
-    if (controlsContainer != 0)
+    if (controlsContainer != 0 && g_recipePanel.scope != 0 && g_recipePanel.target != 0
+        && g_recipePanel.scope->getInheritedVisible())
     {
-        if (controlsContainer->getInheritedVisible())
+        const bool panelVisible = !hasModal;
+        if (controlsContainer->getVisible() != panelVisible)
         {
-            return;
+            if (!panelVisible)
+            {
+                FinalizeSearchContainerDrag("game_modal");
+            }
+            controlsContainer->setVisible(panelVisible);
         }
 
+        const MyGUI::IntSize viewport = GetRecipePanelViewport();
+        if (viewport.width != g_recipePanel.viewport.width || viewport.height != g_recipePanel.viewport.height)
+        {
+            LayoutFloatingPanel();
+        }
+        return;
+    }
+    if (g_recipePanel.manager != 0)
+    {
         ApplySearchFilterFromControls(true, false);
         DestroyControlsIfPresent();
+    }
+    if (hasModal)
+    {
+        return;
     }
 
     MyGUI::Widget* anchor = 0;
@@ -2009,6 +2438,11 @@ void TickPhase2ControlsScaffold()
     }
 
     EnsureControlsInjectedIfEnabled();
+    MyGUI::Widget* panel = FindControlsContainer();
+    if (panel != 0 && !panel->getInheritedVisible())
+    {
+        return;
+    }
     bool handledSearchShortcut = false;
     MyGUI::EditBox* searchEdit = FindSearchEditBox();
     if (searchEdit != 0)
@@ -2041,6 +2475,7 @@ void TickPhase2ControlsScaffold()
 
     if (FindControlsContainer() != 0)
     {
+        ObserveCraftingRecipeRowsForRefresh();
         ObserveTraderEntriesStateForRefresh();
     }
 

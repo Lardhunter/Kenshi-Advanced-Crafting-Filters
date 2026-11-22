@@ -10,5 +10,7 @@
   "searchInputHeight": 26,
   "searchInputPositionCustomized": false,
   "searchInputLeft": 0,
-  "searchInputTop": 0
+  "searchInputTop": 0,
+  "searchPanelWidth": 0,
+  "searchPanelHeight": 0
 }

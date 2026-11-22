@@ -47,8 +47,11 @@ struct TraderConfigSnapshot
         , searchInputWidth(kDefaultSearchInputConfiguredWidth)
         , searchInputHeight(kDefaultSearchInputConfiguredHeight)
         , searchInputPositionCustomized(false)
+        , searchInputPositionOnScreen(false)
         , searchInputLeft(0)
         , searchInputTop(0)
+        , searchPanelWidth(0)
+        , searchPanelHeight(0)
     {
     }
 
@@ -62,8 +65,11 @@ struct TraderConfigSnapshot
     int searchInputWidth;
     int searchInputHeight;
     bool searchInputPositionCustomized;
+    bool searchInputPositionOnScreen;
     int searchInputLeft;
     int searchInputTop;
+    int searchPanelWidth;
+    int searchPanelHeight;
 };
 
 struct SectionWidgetInventoryLink
@@ -213,12 +219,15 @@ struct SearchUiState
         , g_focusSearchEditOnNextInjection(false)
         , g_searchContainerDragging(false)
         , g_searchContainerPositionCustomized(false)
+        , g_searchContainerPositionOnScreen(false)
         , g_searchContainerDragLastMouseX(0)
         , g_searchContainerDragLastMouseY(0)
         , g_searchContainerDragStartLeft(0)
         , g_searchContainerDragStartTop(0)
         , g_searchContainerStoredLeft(0)
         , g_searchContainerStoredTop(0)
+        , g_searchPanelWidth(0)
+        , g_searchPanelHeight(0)
     {
     }
 
@@ -232,12 +241,15 @@ struct SearchUiState
     bool g_focusSearchEditOnNextInjection;
     bool g_searchContainerDragging;
     bool g_searchContainerPositionCustomized;
+    bool g_searchContainerPositionOnScreen;
     int g_searchContainerDragLastMouseX;
     int g_searchContainerDragLastMouseY;
     int g_searchContainerDragStartLeft;
     int g_searchContainerDragStartTop;
     int g_searchContainerStoredLeft;
     int g_searchContainerStoredTop;
+    int g_searchPanelWidth;
+    int g_searchPanelHeight;
 };
 
 struct BindingState

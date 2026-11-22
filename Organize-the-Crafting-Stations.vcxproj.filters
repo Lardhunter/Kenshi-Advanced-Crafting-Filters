@@ -39,6 +39,15 @@
     <ClCompile Include="src\CraftingModHub.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\CraftingRecipeFilters.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\CraftingRecipeSort.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\CraftingRecipes.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\CraftingSearchInputBehavior.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -81,6 +90,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\CraftingModHub.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\CraftingRecipes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\CraftingRecipeSort.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\CraftingSearchInputBehavior.h">
