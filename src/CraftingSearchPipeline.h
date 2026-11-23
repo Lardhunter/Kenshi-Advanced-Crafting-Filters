@@ -13,5 +13,6 @@ void LogSearchSampleForQuery(MyGUI::Widget* entriesRoot, const std::string& norm
 void ResetObservedTraderEntriesState();
 void ObserveTraderEntriesStateForRefresh();
 void ObserveCraftingRecipeRowsForRefresh();
+void ObserveResearchRowsForRefresh();
 bool ApplySearchFilterToTraderParent(MyGUI::Widget* traderParent, bool forceShowAll, bool logSummary);
 void ApplySearchFilterFromControls(bool forceShowAll, bool logSummary);

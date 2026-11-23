@@ -7,7 +7,15 @@
 #include "CraftingSearchUi.h"
 #include "CraftingWindowDetection.h"
 
+#include <kenshi/gui/DatapanelGUI.h>
+#include <kenshi/gui/DataPanelLine.h>
+#include <kenshi/gui/ManagementScreen.h>
+
+#include <mygui/MyGUI_Button.h>
 #include <mygui/MyGUI_InputManager.h>
+#include <mygui/MyGUI_ListBox.h>
+#include <mygui/MyGUI_TabControl.h>
+#include <mygui/MyGUI_TabItem.h>
 #include <mygui/MyGUI_TextBox.h>
 #include <mygui/MyGUI_Widget.h>
 
@@ -38,10 +46,60 @@ const char* kCraftingOriginalVisibilityKey = "OTCS_CraftingOrigVisible";
 const char* kCraftingPreviewObserverKey = "OTCS_PreviewObserver";
 const char* kCraftingPreviewOwnerKey = "OTCS_PreviewOwner";
 const char* kCraftingPreviewVisibleKey = "OTCS_PreviewOrigVisible";
+const char* kResearchSearchHiddenKey = "OTCS_ResearchSearchHidden";
 const char* kCraftingDescriptionPanels[] = { "QueueDescriptionPanel1", "QueueDescriptionPanel2" };
 
 MyGUI::Widget* g_observedCraftingRecipesPanel = 0;
 unsigned long long g_observedCraftingRecipeRevision = 0;
+
+struct ResearchListState
+{
+    ResearchListState() : panel(0), scope(0), category(-1), rowCount(0), selectedCategory(MyGUI::ITEM_NONE), revision(0) {}
+
+    bool operator==(const ResearchListState& other) const
+    {
+        return panel == other.panel && scope == other.scope && category == other.category
+            && rowCount == other.rowCount && selectedCategory == other.selectedCategory && revision == other.revision;
+    }
+
+    DatapanelGUI* panel;
+    MyGUI::Widget* scope;
+    int category;
+    int rowCount;
+    std::size_t selectedCategory;
+    long revision;
+};
+
+ResearchListState g_observedResearchList;
+
+ResearchListState ReadResearchList(MyGUI::TabItem* tab)
+{
+    ResearchListState state;
+    ManagementScreen* screen = ManagementScreen::getSingleton();
+    if (screen == 0 || !IsDescendantOf(tab, screen->tabs) || screen->availableList == 0)
+    {
+        return state;
+    }
+
+    MyGUI::Widget* scope = FindWidgetInParentByToken(tab, kResearchAvailablePanelName);
+    MyGUI::Widget* nativePanel = screen->availableList->getWidget();
+    if (!IsDescendantOf(nativePanel, scope) && !IsDescendantOf(scope, nativePanel))
+    {
+        return state;
+    }
+
+    state.panel = screen->availableList;
+    state.scope = scope;
+    state.category = state.panel->_NV_getCurrentCategory();
+    state.rowCount = state.category >= 0 ? state.panel->getNumLines(state.category) : 0;
+    MyGUI::ListBox* categories = screen->researchCategoriesListBox;
+    if (IsDescendantOf(categories, tab))
+    {
+        state.selectedCategory = categories->getIndexSelected();
+    }
+    state.revision = GetResearchRowsRevision();
+    return state;
+}
 
 struct CraftingRecipeWidget
 {
@@ -250,6 +308,100 @@ std::string NormalizeCraftingRecipeCaption(const std::string& rawCaption)
     }
 
     return NormalizeSearchText(trimmed);
+}
+
+void AddResearchRowWidget(std::vector<MyGUI::Widget*>& widgets, MyGUI::Widget* widget, MyGUI::Widget* scope)
+{
+    if (widget != scope && IsDescendantOf(widget, scope)
+        && std::find(widgets.begin(), widgets.end(), widget) == widgets.end())
+    {
+        widgets.push_back(widget);
+    }
+}
+
+bool IsResearchWidgetVisibleBeforeSearch(MyGUI::Widget* widget, MyGUI::Widget* scope)
+{
+    for (; widget != scope; widget = widget->getParent())
+    {
+        if (!widget->getVisible() && !widget->isUserString(kResearchSearchHiddenKey))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void ApplyResearchSearch(MyGUI::TabItem* tab, bool forceShowAll)
+{
+    const ResearchListState state = ReadResearchList(tab);
+    g_observedResearchList = state;
+    const std::string query = forceShowAll ? std::string() : GetNormalizedResearchSearchQuery();
+    std::size_t visibleCount = 0;
+    std::size_t totalCount = 0;
+    std::vector<MyGUI::Widget*> widgets;
+    for (int row = 0; row < state.rowCount; ++row)
+    {
+        DataPanelLine* line = state.panel->getLineByNum(state.category, row);
+        if (line == 0)
+        {
+            continue;
+        }
+
+        widgets.clear();
+        for (int i = 0, count = line->getNumWidgets(); i < count; ++i)
+        {
+            AddResearchRowWidget(widgets, line->getWidget(i), state.scope);
+        }
+        AddResearchRowWidget(widgets, line->w1, state.scope);
+        AddResearchRowWidget(widgets, line->w2, state.scope);
+        if (line->getType() == DataPanelLine::DPL_RESEARCH)
+        {
+            DataPanelLine_Research* researchLine = static_cast<DataPanelLine_Research*>(line);
+            AddResearchRowWidget(widgets, researchLine->but, state.scope);
+            AddResearchRowWidget(widgets, researchLine->bar, state.scope);
+            AddResearchRowWidget(widgets, researchLine->Xbut, state.scope);
+        }
+
+        bool originallyVisible = false;
+        bool hasText = false;
+        bool matches = query.empty();
+        for (std::size_t i = 0; i < widgets.size(); ++i)
+        {
+            MyGUI::Widget* widget = widgets[i];
+            if (!IsResearchWidgetVisibleBeforeSearch(widget, state.scope))
+            {
+                continue;
+            }
+            originallyVisible = true;
+            MyGUI::TextBox* label = widget->castType<MyGUI::TextBox>(false);
+            if (!matches && label != 0)
+            {
+                const std::string caption = NormalizeCraftingRecipeCaption(label->getCaption().asUTF8());
+                hasText = hasText || !caption.empty();
+                matches = caption.find(query) != std::string::npos;
+            }
+        }
+
+        // Unknown rows stay available. Only restore widgets this search hid in the native list.
+        const bool show = matches || !hasText;
+        for (std::size_t i = 0; i < widgets.size(); ++i)
+        {
+            MyGUI::Widget* widget = widgets[i];
+            if (show && widget->clearUserString(kResearchSearchHiddenKey))
+            {
+                widget->setVisible(true);
+            }
+            else if (!show && widget->getVisible())
+            {
+                widget->setUserString(kResearchSearchHiddenKey, "1");
+                widget->setVisible(false);
+            }
+        }
+        totalCount += originallyVisible ? 1 : 0;
+        visibleCount += originallyVisible && show ? 1 : 0;
+    }
+
+    UpdateSearchCountText(visibleCount, totalCount, 0);
 }
 
 void CollectCraftingRecipeWidgetsRecursive(
@@ -886,6 +1038,14 @@ void ObserveCraftingRecipeRowsForRefresh()
     }
     g_observedCraftingRecipesPanel = panel;
     g_observedCraftingRecipeRevision = revision;
+}
+
+void ObserveResearchRowsForRefresh()
+{
+    if (!(ReadResearchList(GetResearchSearchTab()) == g_observedResearchList))
+    {
+        MarkSearchFilterDirty("research_list_changed");
+    }
 }
 
 void ObserveTraderEntriesStateForRefresh()
@@ -1752,6 +1912,14 @@ bool ApplySearchFilterToTraderParent(MyGUI::Widget* traderParent, bool forceShow
 
 void ApplySearchFilterFromControls(bool forceShowAll, bool logSummary)
 {
+    MyGUI::TabItem* researchTab = GetResearchSearchTab();
+    if (researchTab != 0)
+    {
+        ApplyResearchSearch(researchTab, forceShowAll);
+        g_searchFilterDirty = false;
+        return;
+    }
+
     MyGUI::Widget* targetParent = ResolveTraderParentFromControlsContainer();
     if (targetParent == 0)
     {

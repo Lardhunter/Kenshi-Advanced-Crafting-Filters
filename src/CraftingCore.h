@@ -206,6 +206,21 @@ struct SearchState
     std::size_t g_lastSearchTotalEntryCount;
 };
 
+struct SearchPanelGeometry
+{
+    SearchPanelGeometry() : customized(false), onScreen(false), collapsed(false), initialized(false),
+        left(0), top(0), width(0), height(0) {}
+
+    bool customized;
+    bool onScreen;
+    bool collapsed;
+    bool initialized;
+    int left;
+    int top;
+    int width;
+    int height;
+};
+
 struct SearchUiState
 {
     SearchUiState()
@@ -218,16 +233,10 @@ struct SearchUiState
         , g_pendingSlashFocusTextSuppression(false)
         , g_focusSearchEditOnNextInjection(false)
         , g_searchContainerDragging(false)
-        , g_searchContainerPositionCustomized(false)
-        , g_searchContainerPositionOnScreen(false)
         , g_searchContainerDragLastMouseX(0)
         , g_searchContainerDragLastMouseY(0)
         , g_searchContainerDragStartLeft(0)
         , g_searchContainerDragStartTop(0)
-        , g_searchContainerStoredLeft(0)
-        , g_searchContainerStoredTop(0)
-        , g_searchPanelWidth(0)
-        , g_searchPanelHeight(0)
     {
     }
 
@@ -240,16 +249,11 @@ struct SearchUiState
     bool g_pendingSlashFocusTextSuppression;
     bool g_focusSearchEditOnNextInjection;
     bool g_searchContainerDragging;
-    bool g_searchContainerPositionCustomized;
-    bool g_searchContainerPositionOnScreen;
     int g_searchContainerDragLastMouseX;
     int g_searchContainerDragLastMouseY;
     int g_searchContainerDragStartLeft;
     int g_searchContainerDragStartTop;
-    int g_searchContainerStoredLeft;
-    int g_searchContainerStoredTop;
-    int g_searchPanelWidth;
-    int g_searchPanelHeight;
+    SearchPanelGeometry craftingPanelGeometry;
 };
 
 struct BindingState

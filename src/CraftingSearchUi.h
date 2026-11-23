@@ -11,6 +11,7 @@ namespace MyGUI
 class Widget;
 class Button;
 class EditBox;
+class TabItem;
 class TextBox;
 }
 
@@ -55,6 +56,8 @@ MyGUI::TextBox* FindSearchPlaceholderTextBox();
 MyGUI::Button* FindSearchClearButton();
 MyGUI::TextBox* FindSearchCountTextBox();
 MyGUI::Widget* ResolveTraderParentFromControlsContainer();
+MyGUI::TabItem* GetResearchSearchTab();
+const std::string& GetNormalizedResearchSearchQuery();
 void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason);
 void FocusSearchEditIfRequested(MyGUI::EditBox* searchEdit, const char* reason);
 bool IsSearchEditFocused(MyGUI::EditBox* searchEdit);

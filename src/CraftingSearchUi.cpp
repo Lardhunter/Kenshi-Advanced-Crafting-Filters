@@ -72,7 +72,7 @@ const int kResizeGripSize = 22;
 
 struct FloatingRecipePanel : MyGUI::IUnlinkWidget
 {
-    FloatingRecipePanel() : manager(0), root(0), content(0), tabs(0), craftingTab(0),
+    FloatingRecipePanel() : manager(0), root(0), content(0), tabs(0), tab(0), mode(OverviewFilterNone),
         minimumWidth(kPanelMinWidth), minimumHeight(0), viewport(0, 0) {}
 
     void _unlinkWidget(MyGUI::Widget* widget) override
@@ -80,7 +80,7 @@ struct FloatingRecipePanel : MyGUI::IUnlinkWidget
         if (widget == root) root = 0;
         if (widget == content) content = 0;
         if (widget == tabs) tabs = 0;
-        if (widget == craftingTab) craftingTab = 0;
+        if (widget == tab) tab = 0;
     }
 
     void Disconnect()
@@ -93,7 +93,8 @@ struct FloatingRecipePanel : MyGUI::IUnlinkWidget
         root = 0;
         content = 0;
         tabs = 0;
-        craftingTab = 0;
+        tab = 0;
+        mode = OverviewFilterNone;
         minimumWidth = kPanelMinWidth;
     }
 
@@ -101,19 +102,33 @@ struct FloatingRecipePanel : MyGUI::IUnlinkWidget
     MyGUI::Widget* root;
     MyGUI::Widget* content;
     MyGUI::TabControl* tabs;
-    MyGUI::TabItem* craftingTab;
+    MyGUI::TabItem* tab;
+    OverviewFilterMode mode;
     int minimumWidth;
     int minimumHeight;
     MyGUI::IntSize viewport;
 };
 
 FloatingRecipePanel g_recipePanel;
-bool g_filterPanelCollapsed = false;
 bool g_filterPanelResizing = false;
 MyGUI::IntSize g_filterPanelDragStartSize(0, 0);
 // Keep the player's choices when the current recipe list cannot offer them.
 CraftingCategorySelection g_filterPreferences;
 bool g_syncingRecipeFilters = false;
+
+struct ResearchFilterState
+{
+    SearchPanelGeometry geometry;
+    std::string queryRaw;
+    std::string queryNormalized;
+};
+
+ResearchFilterState g_researchFilters;
+
+SearchPanelGeometry& PanelGeometry(OverviewFilterMode mode)
+{
+    return mode == OverviewFilterResearch ? g_researchFilters.geometry : TraderState().searchUi.craftingPanelGeometry;
+}
 
 struct PendingSearchEditShortcut
 {
@@ -138,8 +153,17 @@ TraderSearchInputBehavior::Snapshot g_searchEditSnapshot;
 #define g_searchInputConfiguredWidth (TraderState().core.g_searchInputConfiguredWidth)
 #define g_searchInputConfiguredHeight (TraderState().core.g_searchInputConfiguredHeight)
 
-#define g_searchQueryRaw (TraderState().search.g_searchQueryRaw)
-#define g_searchQueryNormalized (TraderState().search.g_searchQueryNormalized)
+std::string& PanelQueryRaw()
+{
+    return g_recipePanel.mode == OverviewFilterResearch ? g_researchFilters.queryRaw : TraderState().search.g_searchQueryRaw;
+}
+
+std::string& PanelQueryNormalized()
+{
+    return g_recipePanel.mode == OverviewFilterResearch
+        ? g_researchFilters.queryNormalized : TraderState().search.g_searchQueryNormalized;
+}
+
 #define g_loggedNumericOnlyQueryIgnored (TraderState().search.g_loggedNumericOnlyQueryIgnored)
 #define g_activeTraderTargetId (TraderState().search.g_activeTraderTargetId)
 #define g_lastZeroMatchQueryLogged (TraderState().search.g_lastZeroMatchQueryLogged)
@@ -163,16 +187,10 @@ TraderSearchInputBehavior::Snapshot g_searchEditSnapshot;
 #define g_pendingSlashFocusTextSuppression (TraderState().searchUi.g_pendingSlashFocusTextSuppression)
 #define g_focusSearchEditOnNextInjection (TraderState().searchUi.g_focusSearchEditOnNextInjection)
 #define g_searchContainerDragging (TraderState().searchUi.g_searchContainerDragging)
-#define g_searchContainerPositionCustomized (TraderState().searchUi.g_searchContainerPositionCustomized)
-#define g_searchContainerPositionOnScreen (TraderState().searchUi.g_searchContainerPositionOnScreen)
 #define g_searchContainerDragLastMouseX (TraderState().searchUi.g_searchContainerDragLastMouseX)
 #define g_searchContainerDragLastMouseY (TraderState().searchUi.g_searchContainerDragLastMouseY)
 #define g_searchContainerDragStartLeft (TraderState().searchUi.g_searchContainerDragStartLeft)
 #define g_searchContainerDragStartTop (TraderState().searchUi.g_searchContainerDragStartTop)
-#define g_searchContainerStoredLeft (TraderState().searchUi.g_searchContainerStoredLeft)
-#define g_searchContainerStoredTop (TraderState().searchUi.g_searchContainerStoredTop)
-#define g_searchPanelWidth (TraderState().searchUi.g_searchPanelWidth)
-#define g_searchPanelHeight (TraderState().searchUi.g_searchPanelHeight)
 
 #define g_cachedHoveredWidgetInventory (TraderState().binding.g_cachedHoveredWidgetInventory)
 #define g_cachedHoveredWidgetInventorySignature (TraderState().binding.g_cachedHoveredWidgetInventorySignature)
@@ -345,7 +363,7 @@ bool ShouldShowAnySearchCountMetric()
 
 bool SearchHasNoVisibleResults()
 {
-    return !g_searchQueryNormalized.empty()
+    return !PanelQueryNormalized().empty()
         && g_lastSearchTotalEntryCount > 0
         && g_lastSearchVisibleEntryCount == 0;
 }
@@ -394,13 +412,14 @@ int FilterPanelMinimumHeight(int rowCount)
     return kPanelHeaderHeight + (std::max)(kPanelMinBodyHeight, controlHeight);
 }
 
-MyGUI::IntSize ResolveExpandedPanelSize(const MyGUI::IntSize& view, int minimumWidth, int minimumHeight)
+MyGUI::IntSize ResolveExpandedPanelSize(const MyGUI::IntSize& view, const SearchPanelGeometry& geometry,
+    int minimumWidth, int minimumHeight)
 {
     const int automaticWidth = kPanelDefaultWidth + g_searchInputConfiguredWidth - kDefaultSearchInputConfiguredWidth;
-    const int preferredWidth = g_searchPanelWidth > 0 ? g_searchPanelWidth : automaticWidth;
+    const int preferredWidth = geometry.width > 0 ? geometry.width : automaticWidth;
     return MyGUI::IntSize(
         (std::min)(view.width, (std::max)(minimumWidth, preferredWidth)),
-        (std::min)(view.height, (std::max)(minimumHeight, g_searchPanelHeight)));
+        (std::min)(view.height, (std::max)(minimumHeight, geometry.height)));
 }
 
 MyGUI::IntCoord ClampSearchContainerCoord(const MyGUI::IntCoord& inputCoord)
@@ -425,10 +444,11 @@ void RememberSearchContainerPosition(MyGUI::Widget* container)
     }
 
     const MyGUI::IntCoord coord = container->getCoord();
-    g_searchContainerStoredLeft = coord.left;
-    g_searchContainerStoredTop = coord.top;
-    g_searchContainerPositionCustomized = true;
-    g_searchContainerPositionOnScreen = true;
+    SearchPanelGeometry& geometry = PanelGeometry(g_recipePanel.mode);
+    geometry.left = coord.left;
+    geometry.top = coord.top;
+    geometry.customized = true;
+    geometry.onScreen = true;
 }
 
 void RememberSearchEditSnapshotValue(
@@ -450,12 +470,6 @@ void RememberSearchEditSnapshot(MyGUI::EditBox* searchEdit)
 
     g_haveSearchEditSnapshot = true;
     g_searchEditSnapshot = CaptureSearchEditSnapshot(searchEdit);
-}
-
-void PersistSearchContainerPosition()
-{
-    const TraderConfigSnapshot config = CaptureTraderConfigSnapshot();
-    SaveTraderConfigSnapshot(config);
 }
 
 void LayoutFloatingPanel();
@@ -491,8 +505,9 @@ void MoveOrResizeSearchContainer(int deltaX, int deltaY)
             (std::min)(view.height - current.top, current.height + deltaY));
         if (width != current.width || height != current.height)
         {
-            g_searchPanelWidth = width;
-            g_searchPanelHeight = height;
+            SearchPanelGeometry& geometry = PanelGeometry(g_recipePanel.mode);
+            geometry.width = width;
+            geometry.height = height;
             LayoutFloatingPanel();
         }
         return;
@@ -533,7 +548,10 @@ void FinalizeSearchContainerDrag(const char* source)
     if (positionChanged || sizeChanged)
     {
         RememberSearchContainerPosition(container);
-        PersistSearchContainerPosition();
+        if (g_recipePanel.mode == OverviewFilterCrafting)
+        {
+            SaveTraderConfigSnapshot(CaptureTraderConfigSnapshot());
+        }
     }
 
     line << "search container drag finalized"
@@ -661,13 +679,13 @@ void SetFilterPanelCollapsed(bool collapsed)
             }
         }
     }
-    g_filterPanelCollapsed = collapsed;
+    PanelGeometry(g_recipePanel.mode).collapsed = collapsed;
     LayoutFloatingPanel();
 }
 
 void OnCollapseFilterPanel(MyGUI::Widget*)
 {
-    SetFilterPanelCollapsed(!g_filterPanelCollapsed);
+    SetFilterPanelCollapsed(!PanelGeometry(g_recipePanel.mode).collapsed);
 }
 
 void DestroyWidgetDirect(MyGUI::Widget* widget)
@@ -776,7 +794,17 @@ MyGUI::TextBox* FindSearchCountTextBox()
 
 MyGUI::Widget* ResolveTraderParentFromControlsContainer()
 {
-    return g_recipePanel.craftingTab;
+    return g_recipePanel.mode == OverviewFilterCrafting ? g_recipePanel.tab : 0;
+}
+
+MyGUI::TabItem* GetResearchSearchTab()
+{
+    return g_recipePanel.mode == OverviewFilterResearch ? g_recipePanel.tab : 0;
+}
+
+const std::string& GetNormalizedResearchSearchQuery()
+{
+    return g_researchFilters.queryNormalized;
 }
 
 void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason)
@@ -793,7 +821,7 @@ void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason)
         return;
     }
 
-    if (g_filterPanelCollapsed)
+    if (PanelGeometry(g_recipePanel.mode).collapsed)
     {
         SetFilterPanelCollapsed(false);
     }
@@ -844,7 +872,7 @@ void FocusSearchEditIfRequested(MyGUI::EditBox* searchEdit, const char* reason)
     }
 
     g_focusSearchEditOnNextInjection = false;
-    if (g_autoFocusSearchInput && !g_filterPanelCollapsed)
+    if (g_autoFocusSearchInput && !PanelGeometry(g_recipePanel.mode).collapsed)
     {
         FocusSearchEdit(searchEdit, reason);
     }
@@ -878,7 +906,7 @@ void UpdateSearchUiState()
     MyGUI::TextBox* placeholder = FindSearchPlaceholderTextBox();
     MyGUI::TextBox* countText = FindSearchCountTextBox();
 
-    const bool hasQuery = !g_searchQueryRaw.empty();
+    const bool hasQuery = !PanelQueryRaw().empty();
     const bool focused = IsSearchEditFocused(searchEdit);
     const bool noVisibleResults = SearchHasNoVisibleResults();
 
@@ -1393,8 +1421,10 @@ void LayoutFloatingPanel()
     g_recipePanel.viewport = view;
     g_recipePanel.minimumHeight = FilterPanelMinimumHeight(
         1 + showCategory + showArmorClass + showCoverage + showThreshold + showSort);
-    const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(view, g_recipePanel.minimumWidth, g_recipePanel.minimumHeight);
-    const bool collapsed = g_filterPanelCollapsed || view.width < kPanelMinWidth
+    const SearchPanelGeometry& geometry = PanelGeometry(g_recipePanel.mode);
+    const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(
+        view, geometry, g_recipePanel.minimumWidth, g_recipePanel.minimumHeight);
+    const bool collapsed = geometry.collapsed || view.width < kPanelMinWidth
         || view.height < g_recipePanel.minimumHeight;
     MyGUI::IntCoord coord = root->getCoord();
     coord.width = collapsed ? (std::min)(kCollapsedPanelWidth, view.width) : expandedSize.width;
@@ -1531,7 +1561,7 @@ void TickSearchContainerDrag()
 
 static bool BuildControlsScaffold(
     MyGUI::TabControl* tabs,
-    MyGUI::TabItem* craftingTab,
+    MyGUI::TabItem* tab,
     const SearchUiCallbacks& callbacks)
 {
     MyGUI::Gui* gui = MyGUI::Gui::getInstancePtr();
@@ -1539,7 +1569,8 @@ static bool BuildControlsScaffold(
     MyGUI::LayerManager* layers = MyGUI::LayerManager::getInstancePtr();
     const MyGUI::IntSize view = GetRecipePanelViewport();
     const char* layer = "Window";
-    if (tabs == 0 || craftingTab == 0 || gui == 0 || widgets == 0 || layers == 0 || !layers->isExist(layer)
+    const OverviewFilterMode mode = GetOverviewFilterMode(tab);
+    if (tabs == 0 || mode == OverviewFilterNone || gui == 0 || widgets == 0 || layers == 0 || !layers->isExist(layer)
         || view.width < kCollapsedPanelWidth || view.height < kPanelHeaderHeight)
     {
         return false;
@@ -1553,22 +1584,25 @@ static bool BuildControlsScaffold(
         return false;
     }
 
-    const bool recipeTab = FindNamedDescendantByTokenRecursive(craftingTab, kCraftingRecipesPanelName, true) != 0;
+    SearchPanelGeometry& geometry = PanelGeometry(mode);
+    const bool research = mode == OverviewFilterResearch;
+    const bool recipeTab = !research && FindNamedDescendantByTokenRecursive(tab, kCraftingRecipesPanelName, true) != 0;
     const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(
-        view, kPanelMinWidth, FilterPanelMinimumHeight(recipeTab ? 5 : 1));
+        view, geometry, kPanelMinWidth, FilterPanelMinimumHeight(recipeTab ? 5 : 1));
     MyGUI::IntCoord coord(kPanelPadding, kPanelPadding, expandedSize.width, expandedSize.height);
-    if (g_searchContainerPositionCustomized && g_searchContainerPositionOnScreen)
+    if (geometry.customized && geometry.onScreen)
     {
-        coord.left = g_searchContainerStoredLeft;
-        coord.top = g_searchContainerStoredTop;
+        coord.left = geometry.left;
+        coord.top = geometry.top;
     }
     else
     {
-        const MyGUI::Window* window = FindOwningWindow(craftingTab);
-        const MyGUI::IntCoord bounds = window != 0 ? window->getAbsoluteCoord() : craftingTab->getAbsoluteCoord();
-        if (g_filterPanelCollapsed || !PlacePanelOutsideWindow(bounds, view, coord))
+        const MyGUI::Window* window = FindOwningWindow(tab);
+        const MyGUI::IntCoord bounds = window != 0 ? window->getAbsoluteCoord() : tab->getAbsoluteCoord();
+        const bool placedOutside = PlacePanelOutsideWindow(bounds, view, coord);
+        if (geometry.collapsed || (!geometry.initialized && !placedOutside))
         {
-            g_filterPanelCollapsed = true;
+            geometry.collapsed = true;
             coord.width = kCollapsedPanelWidth;
             coord.height = kPanelHeaderHeight;
             PlacePanelOutsideWindow(bounds, view, coord);
@@ -1618,7 +1652,7 @@ static bool BuildControlsScaffold(
         DestroyWidgetDirect(root);
         return false;
     }
-    dragHandle->setCaption("Crafting filters");
+    dragHandle->setCaption(research ? "Research filters" : "Crafting filters");
     dragHandle->setTextAlign(MyGUI::Align::HCenter | MyGUI::Align::VCenter);
     BindPanelDrag(dragHandle);
     collapse->eventMouseButtonClick += MyGUI::newDelegate(&OnCollapseFilterPanel);
@@ -1642,13 +1676,14 @@ static bool BuildControlsScaffold(
         return false;
     }
 
-    searchEdit->setOnlyText(g_searchQueryRaw);
+    g_recipePanel.mode = mode;
+    searchEdit->setOnlyText(PanelQueryRaw());
     searchEdit->eventEditTextChange += MyGUI::newDelegate(callbacks.onSearchTextChanged);
     searchEdit->eventKeySetFocus += MyGUI::newDelegate(callbacks.onSearchEditFocusChanged);
     searchEdit->eventKeyLostFocus += MyGUI::newDelegate(callbacks.onSearchEditFocusChanged);
     searchEdit->eventKeyButtonPressed += MyGUI::newDelegate(&OnSearchEditKeyPressed);
     searchEdit->eventKeyButtonReleased += MyGUI::newDelegate(&OnSearchEditKeyReleased);
-    placeholder->setCaption("Search items...");
+    placeholder->setCaption(research ? "Search Research..." : "Search items...");
     placeholder->setTextAlign(MyGUI::Align::Left | MyGUI::Align::VCenter);
     placeholder->setNeedMouseFocus(true);
     placeholder->eventMouseButtonClick += MyGUI::newDelegate(callbacks.onSearchPlaceholderClicked);
@@ -1662,7 +1697,8 @@ static bool BuildControlsScaffold(
     g_recipePanel.root = root;
     g_recipePanel.content = container;
     g_recipePanel.tabs = tabs;
-    g_recipePanel.craftingTab = craftingTab;
+    g_recipePanel.tab = tab;
+    geometry.initialized = true;
     LayoutFloatingPanel();
     UpdateSearchCountText(0, 0, 0);
     FocusSearchEditIfRequested(searchEdit, "controls_built");
@@ -1751,8 +1787,8 @@ void SetSearchQueryAndRefresh(
         return;
     }
 
-    g_searchQueryRaw = rawText;
-    g_searchQueryNormalized = NormalizeSearchText(g_searchQueryRaw);
+    PanelQueryRaw() = rawText;
+    PanelQueryNormalized() = NormalizeSearchText(rawText);
     g_loggedNumericOnlyQueryIgnored = false;
     g_lastSearchSampleQueryLogged.clear();
     g_lastZeroMatchQueryLogged.clear();
@@ -1774,8 +1810,8 @@ void SetSearchQueryAndRefresh(
     std::stringstream line;
     line << "search ui action"
          << " reason=" << (reason == 0 ? "<unknown>" : reason)
-         << " raw=\"" << TruncateForLog(g_searchQueryRaw, 64) << "\""
-         << " normalized=\"" << TruncateForLog(g_searchQueryNormalized, 64) << "\"";
+         << " raw=\"" << TruncateForLog(PanelQueryRaw(), 64) << "\""
+         << " normalized=\"" << TruncateForLog(PanelQueryNormalized(), 64) << "\"";
     LogSearchDebugLine(line.str());
 
     MarkSearchFilterDirty(reason);
@@ -1875,7 +1911,7 @@ void OnSearchClearButtonClicked(MyGUI::Widget*)
         return;
     }
 
-    if (g_searchQueryRaw.empty())
+    if (PanelQueryRaw().empty())
     {
         FocusSearchEdit(searchEdit, "clear_button_empty");
         return;
@@ -1961,7 +1997,7 @@ void OnSearchTextChanged(MyGUI::EditBox* sender)
 
     const std::string captionText = sender->getCaption().asUTF8();
     const std::string onlyText = sender->getOnlyText().asUTF8();
-    if (g_suppressNextSearchEditChangeEvent && onlyText == g_searchQueryRaw)
+    if (g_suppressNextSearchEditChangeEvent && onlyText == PanelQueryRaw())
     {
         g_suppressNextSearchEditChangeEvent = false;
         return;
@@ -1985,15 +2021,15 @@ void OnSearchTextChanged(MyGUI::EditBox* sender)
         g_pendingSlashFocusTextSuppression = false;
     }
 
-    g_searchQueryRaw = onlyText;
-    g_searchQueryNormalized = NormalizeSearchText(g_searchQueryRaw);
+    PanelQueryRaw() = onlyText;
+    PanelQueryNormalized() = NormalizeSearchText(onlyText);
     g_loggedNumericOnlyQueryIgnored = false;
 
     std::stringstream line;
     line << "search input changed"
-         << " raw=\"" << TruncateForLog(g_searchQueryRaw, 64) << "\""
-         << " normalized=\"" << TruncateForLog(g_searchQueryNormalized, 64) << "\""
-         << " raw_len=" << g_searchQueryRaw.size()
+         << " raw=\"" << TruncateForLog(PanelQueryRaw(), 64) << "\""
+         << " normalized=\"" << TruncateForLog(PanelQueryNormalized(), 64) << "\""
+         << " raw_len=" << PanelQueryRaw().size()
          << " caption_len=" << captionText.size()
          << " only_len=" << onlyText.size();
     LogSearchDebugLine(line.str());
@@ -2042,11 +2078,11 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
     }
 
     MyGUI::TabControl* tabs = FindOverviewTabs(parent);
-    MyGUI::TabItem* craftingTab = GetActiveCraftingTab(tabs);
-    if (craftingTab == 0)
+    MyGUI::TabItem* tab = GetActiveOverviewFilterTab(tabs);
+    if (tab == 0)
     {
         std::stringstream line;
-        line << "rejecting injection target reason=crafting_tab_inactive"
+        line << "rejecting injection target reason=filter_tab_inactive"
              << " source=" << (sourceTag == 0 ? "<unknown>" : sourceTag)
              << " anchor=" << SafeWidgetName(anchor)
              << " parent=" << SafeWidgetName(parent);
@@ -2073,7 +2109,7 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
     callbacks.onSearchEditFocusChanged = &OnSearchEditKeyFocusChanged;
     callbacks.onSearchPlaceholderClicked = &OnSearchPlaceholderClicked;
     callbacks.onSearchClearButtonClicked = &OnSearchClearButtonClicked;
-    if (!BuildControlsScaffold(tabs, craftingTab, callbacks))
+    if (!BuildControlsScaffold(tabs, tab, callbacks))
     {
         LogErrorLine("failed to build phase 2 controls scaffold");
         return false;
@@ -2122,10 +2158,10 @@ bool TryInjectControlsToHoveredWindowDirect()
         return false;
     }
 
-    if (!IsLikelyCraftingWindow(parent))
+    if (!IsLikelyOverviewFilterWindow(parent))
     {
         std::stringstream line;
-        line << "manual attach failed: hovered window is not a crafting target"
+        line << "manual attach failed: hovered window has no active filter tab"
              << " anchor=" << SafeWidgetName(anchor)
              << " parent=" << SafeWidgetName(parent)
              << " hovered_chain=" << BuildParentChainForLog(hovered);
@@ -2134,7 +2170,7 @@ bool TryInjectControlsToHoveredWindowDirect()
     }
 
     std::stringstream line;
-    line << "manual attach using hovered crafting window"
+    line << "manual attach using hovered overview window"
          << " anchor=" << SafeWidgetName(anchor)
          << " parent=" << SafeWidgetName(parent)
          << " parent_coord=(" << parent->getCoord().left << "," << parent->getCoord().top << ","
@@ -2147,12 +2183,12 @@ bool TryInjectControlsToHoveredWindowDirect()
         DumpHoveredAttachDiagnostics(hovered, anchor, parent);
     }
 
-    return TryInjectControlsToTarget(anchor, parent, "crafting-hover-direct");
+    return TryInjectControlsToTarget(anchor, parent, "overview-hover-direct");
 }
 
 static void HideRecipePanel(MyGUI::Widget* panel, MyGUI::InputManager* input)
 {
-    FinalizeSearchContainerDrag("crafting_panel_hidden");
+    FinalizeSearchContainerDrag("filter_panel_hidden");
     ResetPendingSearchEditShortcut();
     g_pendingSlashFocusBaseQuery.clear();
     g_pendingSlashFocusTextSuppression = false;
@@ -2198,9 +2234,10 @@ void EnsureControlsInjectedIfEnabled()
     MyGUI::InputManager* input = MyGUI::InputManager::getInstancePtr();
     const bool hasModal = input != 0 && input->isModalAny();
     MyGUI::Widget* controlsContainer = FindControlsContainer();
-    if (controlsContainer != 0 && g_recipePanel.tabs != 0 && g_recipePanel.craftingTab != 0)
+    if (controlsContainer != 0 && g_recipePanel.tabs != 0 && g_recipePanel.tab != 0)
     {
-        if (hasModal || GetActiveCraftingTab(g_recipePanel.tabs) != g_recipePanel.craftingTab)
+        MyGUI::TabItem* activeTab = GetActiveOverviewFilterTab(g_recipePanel.tabs);
+        if (hasModal || activeTab == 0)
         {
             if (controlsContainer->getVisible())
             {
@@ -2209,19 +2246,23 @@ void EnsureControlsInjectedIfEnabled()
             return;
         }
 
-        if (!controlsContainer->getVisible())
+        if (activeTab == g_recipePanel.tab)
         {
-            controlsContainer->setVisible(true);
-            MarkSearchFilterDirty("crafting_panel_shown");
-        }
-        RaiseRecipePanelIfCovered(controlsContainer);
+            if (!controlsContainer->getVisible())
+            {
+                controlsContainer->setVisible(true);
+                MarkSearchFilterDirty("filter_panel_shown");
+            }
+            RaiseRecipePanelIfCovered(controlsContainer);
 
-        const MyGUI::IntSize viewport = GetRecipePanelViewport();
-        if (viewport.width != g_recipePanel.viewport.width || viewport.height != g_recipePanel.viewport.height)
-        {
-            LayoutFloatingPanel();
+            const MyGUI::IntSize viewport = GetRecipePanelViewport();
+            if (viewport.width != g_recipePanel.viewport.width || viewport.height != g_recipePanel.viewport.height)
+            {
+                LayoutFloatingPanel();
+            }
+            return;
         }
-        return;
+        HideRecipePanel(controlsContainer, input);
     }
     if (g_recipePanel.manager != 0)
     {
@@ -2235,12 +2276,12 @@ void EnsureControlsInjectedIfEnabled()
 
     MyGUI::Widget* anchor = 0;
     MyGUI::Widget* parent = 0;
-    if (TryResolveVisibleCraftingTarget(&anchor, &parent))
+    if (TryResolveVisibleCraftingTarget(&anchor, &parent, true))
     {
         g_loggedNoVisibleTraderTarget = false;
-        if (!TryInjectControlsToTarget(anchor, parent, "crafting-auto"))
+        if (!TryInjectControlsToTarget(anchor, parent, "overview-auto"))
         {
-            LogWarnLine("crafting auto controls scaffold injection failed");
+            LogWarnLine("overview auto controls scaffold injection failed");
         }
         return;
     }
@@ -2249,7 +2290,7 @@ void EnsureControlsInjectedIfEnabled()
     {
         if (ShouldLogDebug())
         {
-            LogDebugLine("controls enabled but no visible crafting target found yet");
+            LogDebugLine("controls enabled but no active overview filter tab found yet");
             DumpVisibleCraftingWindowCandidateDiagnostics();
         }
         g_loggedNoVisibleTraderTarget = true;
@@ -2396,7 +2437,7 @@ void TickPhase2ControlsScaffold()
         {
             if (hotkeyKind == SearchFocusHotkeyKind_Slash)
             {
-                g_pendingSlashFocusBaseQuery = g_searchQueryRaw;
+                g_pendingSlashFocusBaseQuery = PanelQueryRaw();
                 g_pendingSlashFocusTextSuppression = true;
             }
             else
@@ -2418,8 +2459,15 @@ void TickPhase2ControlsScaffold()
 
     if (FindControlsContainer() != 0)
     {
-        ObserveCraftingRecipeRowsForRefresh();
-        ObserveTraderEntriesStateForRefresh();
+        if (GetResearchSearchTab() != 0)
+        {
+            ObserveResearchRowsForRefresh();
+        }
+        else
+        {
+            ObserveCraftingRecipeRowsForRefresh();
+            ObserveTraderEntriesStateForRefresh();
+        }
     }
 
     if (FindControlsContainer() != 0 && !handledSearchShortcut && g_searchFilterDirty)

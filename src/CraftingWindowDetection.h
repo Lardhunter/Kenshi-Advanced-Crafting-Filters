@@ -13,6 +13,15 @@ class Window;
 
 class Character;
 
+extern const char kResearchAvailablePanelName[];
+
+enum OverviewFilterMode
+{
+    OverviewFilterNone,
+    OverviewFilterCrafting,
+    OverviewFilterResearch
+};
+
 MyGUI::Widget* FindWidgetByName(const char* widgetName);
 MyGUI::Widget* FindNamedDescendantRecursive(
     MyGUI::Widget* root,
@@ -31,9 +40,11 @@ void DumpTraderTargetProbe();
 void DumpVisibleWindowCandidateDiagnostics();
 void DumpVisibleCraftingWindowCandidateDiagnostics();
 MyGUI::TabControl* FindOverviewTabs(MyGUI::Widget* parent);
-MyGUI::TabItem* GetActiveCraftingTab(MyGUI::TabControl* tabs);
-bool IsLikelyCraftingWindow(MyGUI::Widget* parent);
-bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent);
+OverviewFilterMode GetOverviewFilterMode(MyGUI::TabItem* tab);
+MyGUI::TabItem* GetActiveOverviewFilterTab(MyGUI::TabControl* tabs);
+bool IsLikelyOverviewFilterWindow(MyGUI::Widget* parent);
+bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent,
+    bool includeResearch = false);
 bool TryResolveVisibleTraderTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent);
 bool TryResolveHoveredTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent, bool logFailures);
 MyGUI::Widget* FindBestWindowAnchor(MyGUI::Widget* fromWidget);

@@ -93,6 +93,7 @@ UpdateManagementScreenFn g_updateManagementScreen = 0;
 GetPlayerManufacturerDataFn g_getPlayerManufacturerData = 0;
 volatile LONG g_craftingUiThread = 0;
 volatile LONG g_researchRevision = 0;
+volatile LONG g_researchRowsRevision = 0;
 LONG g_displayedResearchRevision = 0;
 RecipeCatalog g_pendingRecipes;
 LONG g_pendingResearchRevision = 0;
@@ -289,6 +290,7 @@ void OnUpdateEnabledResearchItems(Research* research)
 {
     g_updateEnabledResearchItems(research);
     InterlockedIncrement(&g_researchRevision);
+    InterlockedIncrement(&g_researchRowsRevision);
 }
 
 void OnUpdateManagementScreen(ManagementScreen* screen)
@@ -328,11 +330,11 @@ void OnUpdateManagementScreen(ManagementScreen* screen)
     screen->tabCallback(screen->tabs, static_cast<std::size_t>(tabIndex));
 }
 
-bool IsInRecipePanel(MyGUI::Widget* widget)
+bool IsInNamedPanel(MyGUI::Widget* widget, const char* panelName)
 {
     for (; widget != 0; widget = widget->getParent())
     {
-        if (ContainsAsciiCaseInsensitive(widget->getName(), kCraftingRecipesPanelName))
+        if (ContainsAsciiCaseInsensitive(widget->getName(), panelName))
         {
             return true;
         }
@@ -343,8 +345,16 @@ bool IsInRecipePanel(MyGUI::Widget* widget)
 void OnCreateResearchLine(DataPanelLine_Research* line, DatapanelGUI* panel, float top, bool lastLine)
 {
     g_createResearchLine(line, panel, top, lastLine);
-    if (!IsCraftingUiThread() || line->but == 0 || !IsInRecipePanel(line->but))
+    if (!IsCraftingUiThread() || line->but == 0)
     {
+        return;
+    }
+    if (!IsInNamedPanel(line->but, kCraftingRecipesPanelName))
+    {
+        if (IsInNamedPanel(line->but, kResearchAvailablePanelName))
+        {
+            InterlockedIncrement(&g_researchRowsRevision);
+        }
         return;
     }
 
@@ -374,6 +384,11 @@ void OnCreateResearchLine(DataPanelLine_Research* line, DatapanelGUI* panel, flo
     ++g_recipeRevision;
 }
 
+}
+
+long GetResearchRowsRevision()
+{
+    return InterlockedCompareExchange(&g_researchRowsRevision, 0, 0);
 }
 
 void InstallCraftingRecipeHooks()

@@ -409,12 +409,13 @@ TraderConfigSnapshot CaptureTraderConfigSnapshot()
     config.debugBindingLogging = TraderState().core.g_debugBindingLogging;
     config.searchInputWidth = TraderState().core.g_searchInputConfiguredWidth;
     config.searchInputHeight = TraderState().core.g_searchInputConfiguredHeight;
-    config.searchInputPositionCustomized = TraderState().searchUi.g_searchContainerPositionCustomized;
-    config.searchInputPositionOnScreen = TraderState().searchUi.g_searchContainerPositionOnScreen;
-    config.searchInputLeft = TraderState().searchUi.g_searchContainerStoredLeft;
-    config.searchInputTop = TraderState().searchUi.g_searchContainerStoredTop;
-    config.searchPanelWidth = TraderState().searchUi.g_searchPanelWidth;
-    config.searchPanelHeight = TraderState().searchUi.g_searchPanelHeight;
+    const SearchPanelGeometry& geometry = TraderState().searchUi.craftingPanelGeometry;
+    config.searchInputPositionCustomized = geometry.customized;
+    config.searchInputPositionOnScreen = geometry.onScreen;
+    config.searchInputLeft = geometry.left;
+    config.searchInputTop = geometry.top;
+    config.searchPanelWidth = geometry.width;
+    config.searchPanelHeight = geometry.height;
     NormalizeTraderConfigSnapshot(&config);
     return config;
 }
@@ -433,13 +434,13 @@ void ApplyTraderConfigSnapshot(const TraderConfigSnapshot& config)
     TraderState().core.g_debugBindingLogging = normalized.debugBindingLogging;
     TraderState().core.g_searchInputConfiguredWidth = normalized.searchInputWidth;
     TraderState().core.g_searchInputConfiguredHeight = normalized.searchInputHeight;
-    TraderState().searchUi.g_searchContainerPositionCustomized =
-        normalized.searchInputPositionCustomized;
-    TraderState().searchUi.g_searchContainerPositionOnScreen = normalized.searchInputPositionOnScreen;
-    TraderState().searchUi.g_searchContainerStoredLeft = normalized.searchInputLeft;
-    TraderState().searchUi.g_searchContainerStoredTop = normalized.searchInputTop;
-    TraderState().searchUi.g_searchPanelWidth = normalized.searchPanelWidth;
-    TraderState().searchUi.g_searchPanelHeight = normalized.searchPanelHeight;
+    SearchPanelGeometry& geometry = TraderState().searchUi.craftingPanelGeometry;
+    geometry.customized = normalized.searchInputPositionCustomized;
+    geometry.onScreen = normalized.searchInputPositionOnScreen;
+    geometry.left = normalized.searchInputLeft;
+    geometry.top = normalized.searchInputTop;
+    geometry.width = normalized.searchPanelWidth;
+    geometry.height = normalized.searchPanelHeight;
 }
 
 bool SaveTraderConfigSnapshot(const TraderConfigSnapshot& config)

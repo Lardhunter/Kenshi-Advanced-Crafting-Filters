@@ -55,6 +55,7 @@ std::string GetCraftingCategoryLabel(const CraftingCategoryFilter& filter);
 void InstallCraftingRecipeHooks();
 void ObserveCraftingRecipeUiThread();
 unsigned long long GetCraftingRecipeRevision();
+long GetResearchRowsRevision();
 std::size_t GetAvailableCraftingRecipeCount();
 bool TryGetCraftingRecipeCategory(MyGUI::Widget* button, CraftingRecipeCategory& category);
 bool TryGetCraftingRecipeSortValue(MyGUI::Widget* button, CraftingRecipeSortStat stat, float& value);

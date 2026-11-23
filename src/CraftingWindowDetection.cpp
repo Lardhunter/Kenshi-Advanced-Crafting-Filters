@@ -22,6 +22,8 @@
 #include <sstream>
 #include <vector>
 
+const char kResearchAvailablePanelName[] = "BlueprintsAvailablePanel";
+
 namespace
 {
 struct CraftingProbeToken
@@ -105,7 +107,7 @@ int ComputeVisibleCraftingLayoutMarkerScore(MyGUI::Widget* parent, std::string* 
     static const CraftingProbeToken kVisibleLayoutTokens[] =
     {
         { "QueueItemsPanel", 2800 },
-        { "BlueprintsAvailablePanel", 2600 },
+        { kResearchAvailablePanelName, 2600 },
         { "ResearchQueuePanel", 2400 },
         { "CraftingStationsList", 2600 },
         { "CraftQueue", 1400 },
@@ -828,7 +830,23 @@ MyGUI::TabControl* FindOverviewTabs(MyGUI::Widget* parent)
     return widget != 0 ? widget->castType<MyGUI::TabControl>(false) : 0;
 }
 
-MyGUI::TabItem* GetActiveCraftingTab(MyGUI::TabControl* tabs)
+OverviewFilterMode GetOverviewFilterMode(MyGUI::TabItem* tab)
+{
+    if (tab != 0)
+    {
+        if (ContainsAsciiCaseInsensitive(tab->getName(), "CraftTab"))
+        {
+            return OverviewFilterCrafting;
+        }
+        if (ContainsAsciiCaseInsensitive(tab->getName(), "ResearchTab"))
+        {
+            return OverviewFilterResearch;
+        }
+    }
+    return OverviewFilterNone;
+}
+
+MyGUI::TabItem* GetActiveOverviewFilterTab(MyGUI::TabControl* tabs)
 {
     if (tabs == 0 || !tabs->getInheritedVisible())
     {
@@ -836,10 +854,10 @@ MyGUI::TabItem* GetActiveCraftingTab(MyGUI::TabControl* tabs)
     }
 
     MyGUI::TabItem* selected = tabs->getItemSelected();
-    return selected != 0 && ContainsAsciiCaseInsensitive(selected->getName(), "CraftTab") ? selected : 0;
+    return GetOverviewFilterMode(selected) != OverviewFilterNone ? selected : 0;
 }
 
-bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent)
+bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent, bool includeResearch)
 {
     if (outAnchor != 0)
     {
@@ -878,14 +896,18 @@ bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** 
         }
 
         MyGUI::Widget* parent = ResolveInjectionParent(root);
-        if (GetActiveCraftingTab(FindOverviewTabs(parent)) == 0)
+        MyGUI::TabItem* tab = GetActiveOverviewFilterTab(FindOverviewTabs(parent));
+        if (tab == 0 || (!includeResearch && GetOverviewFilterMode(tab) != OverviewFilterCrafting))
         {
             continue;
         }
 
         std::string candidateReason;
         const int candidateScore = ComputeCraftingWindowCandidateScore(parent, &candidateReason);
-        if (candidateScore <= 0)
+        // Kenshi can hide the available list while Research has no valid bench.
+        const bool hasResearchLayout = GetOverviewFilterMode(tab) == OverviewFilterResearch
+            && FindWidgetInParentByToken(tab, kResearchAvailablePanelName) != 0;
+        if (candidateScore <= 0 && !hasResearchLayout)
         {
             continue;
         }
@@ -942,10 +964,12 @@ bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** 
     return true;
 }
 
-bool IsLikelyCraftingWindow(MyGUI::Widget* parent)
+bool IsLikelyOverviewFilterWindow(MyGUI::Widget* parent)
 {
-    return GetActiveCraftingTab(FindOverviewTabs(parent)) != 0
-        && ComputeCraftingWindowCandidateScore(parent, 0) > 0;
+    MyGUI::TabItem* tab = GetActiveOverviewFilterTab(FindOverviewTabs(parent));
+    return tab != 0 && (ComputeCraftingWindowCandidateScore(parent, 0) > 0
+        || (GetOverviewFilterMode(tab) == OverviewFilterResearch
+            && FindWidgetInParentByToken(tab, kResearchAvailablePanelName) != 0));
 }
 
 bool TryResolveVisibleTraderTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent)
