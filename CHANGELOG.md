@@ -2,9 +2,10 @@
 
 ## v1.0.1 (test build, 2026-11-23)
 
-- Keep the floating filters on the selected Crafting tab and retain the panel state when switching tabs.
+- Keep the floating panel on the selected Crafting tab.
+- Preserve search, equipment categories, armor classes, coverage, and sorting through tab changes and recipe refreshes. Apply an All option when the current station lacks a preferred category.
 - Raise the panel when another window moves ahead of it on the game’s Window layer. Native dropdowns, dialogs, and tooltips retain their priority.
-- Handle the stock and Full Screen Map layouts through their shared MyGUI tab structure. In-game validation is pending.
+- Handle the stock and Full Screen Map layouts through their shared MyGUI tab structure. Initial in-game testing with Full Screen Map confirmed the panel's visibility and window order.
 
 ## v1.0.0 (2026-11-22)
 

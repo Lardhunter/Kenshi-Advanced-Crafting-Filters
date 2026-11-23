@@ -39,7 +39,8 @@ struct SearchUiCallbacks
 
 struct CraftingCategorySelection
 {
-    CraftingCategorySelection() : minimumCoverage(0), sortMode(CraftingRecipeSortOriginal) {}
+    CraftingCategorySelection()
+        : armorClass(CraftingCategoryFilter::ArmorClass), minimumCoverage(0), sortMode(CraftingRecipeSortOriginal) {}
 
     CraftingCategoryFilter category;
     CraftingCategoryFilter armorClass;

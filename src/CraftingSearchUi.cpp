@@ -111,8 +111,9 @@ FloatingRecipePanel g_recipePanel;
 bool g_filterPanelCollapsed = false;
 bool g_filterPanelResizing = false;
 MyGUI::IntSize g_filterPanelDragStartSize(0, 0);
-CraftingRecipeSortMode g_recipeSortMode = CraftingRecipeSortOriginal;
-bool g_syncingRecipeSortCombo = false;
+// Keep the player's choices when the current recipe list cannot offer them.
+CraftingCategorySelection g_filterPreferences;
+bool g_syncingRecipeFilters = false;
 
 struct PendingSearchEditShortcut
 {
@@ -924,19 +925,47 @@ void UpdateSearchUiState()
 
 namespace
 {
-void OnCraftingCategoryChanged(MyGUI::ComboBox*, std::size_t)
+void OnCraftingCategoryChanged(MyGUI::ComboBox* combo, std::size_t index)
 {
-    MarkSearchFilterDirty("crafting_category_changed");
+    if (g_syncingRecipeFilters || index >= combo->getItemCount())
+    {
+        return;
+    }
+
+    const CraftingCategoryFilter* option = combo->getItemDataAt<CraftingCategoryFilter>(index, false);
+    if (option != 0)
+    {
+        CraftingCategoryFilter& preference = option->field == CraftingCategoryFilter::ArmorClass
+            ? g_filterPreferences.armorClass : g_filterPreferences.category;
+        if (!(preference == *option))
+        {
+            preference = *option;
+            MarkSearchFilterDirty("crafting_category_changed");
+        }
+    }
+}
+
+void OnCoveragePartChanged(MyGUI::ComboBox* combo, std::size_t index)
+{
+    if (!g_syncingRecipeFilters && index < combo->getItemCount())
+    {
+        const std::string* part = combo->getItemDataAt<std::string>(index, false);
+        if (part != 0 && g_filterPreferences.coveragePart != *part)
+        {
+            g_filterPreferences.coveragePart = *part;
+            MarkSearchFilterDirty("crafting_coverage_changed");
+        }
+    }
 }
 
 void OnCraftingSortChanged(MyGUI::ComboBox* combo, std::size_t index)
 {
-    if (!g_syncingRecipeSortCombo && index < combo->getItemCount())
+    if (!g_syncingRecipeFilters && index < combo->getItemCount())
     {
         const CraftingRecipeSortMode* mode = combo->getItemDataAt<CraftingRecipeSortMode>(index, false);
-        if (mode != 0)
+        if (mode != 0 && g_filterPreferences.sortMode != *mode)
         {
-            g_recipeSortMode = *mode;
+            g_filterPreferences.sortMode = *mode;
             MarkSearchFilterDirty("crafting_sort_changed");
         }
     }
@@ -963,6 +992,8 @@ MyGUI::ComboBox* CreateRecipeCombo(
     {
         combo->setComboModeDrop(true);
         combo->eventComboChangePosition += MyGUI::newDelegate(onChange);
+        // Accept also fires when a player explicitly chooses the current fallback.
+        combo->eventComboAccept += MyGUI::newDelegate(onChange);
     }
     return combo;
 }
@@ -971,6 +1002,7 @@ MyGUI::ComboBox* SyncCraftingCategoryCombo(
     MyGUI::Widget* container,
     const char* name,
     const CraftingCategoryOptions& options,
+    const CraftingCategoryFilter& preference,
     CraftingCategoryFilter& selection)
 {
     MyGUI::ComboBox* combo = FindRecipeCombo(container, name);
@@ -994,17 +1026,6 @@ MyGUI::ComboBox* SyncCraftingCategoryCombo(
         }
     }
 
-    const std::size_t oldIndex = combo->getIndexSelected();
-    CraftingCategoryFilter oldSelection = options.front();
-    if (oldIndex < combo->getItemCount())
-    {
-        const CraftingCategoryFilter* data = combo->getItemDataAt<CraftingCategoryFilter>(oldIndex, false);
-        if (data != 0)
-        {
-            oldSelection = *data;
-        }
-    }
-
     bool itemsMatch = combo->getItemCount() == options.size();
     std::size_t selectedIndex = 0;
     for (std::size_t i = 0; i < options.size(); ++i)
@@ -1014,7 +1035,7 @@ MyGUI::ComboBox* SyncCraftingCategoryCombo(
             const CraftingCategoryFilter* data = combo->getItemDataAt<CraftingCategoryFilter>(i, false);
             itemsMatch = data != 0 && *data == options[i];
         }
-        if (options[i] == oldSelection)
+        if (options[i] == preference)
         {
             selectedIndex = i;
         }
@@ -1028,7 +1049,7 @@ MyGUI::ComboBox* SyncCraftingCategoryCombo(
             combo->addItem(GetCraftingCategoryLabel(options[i]), MyGUI::Any(options[i]));
         }
     }
-    if (!itemsMatch || oldIndex != selectedIndex)
+    if (!itemsMatch || combo->getIndexSelected() != selectedIndex)
     {
         combo->setIndexSelected(selectedIndex);
     }
@@ -1073,7 +1094,7 @@ MyGUI::ComboBox* SyncCraftingSortCombo(
         {
             continue;
         }
-        if (mode == g_recipeSortMode)
+        if (mode == g_filterPreferences.sortMode)
         {
             selectedIndex = options.size();
         }
@@ -1088,7 +1109,6 @@ MyGUI::ComboBox* SyncCraftingSortCombo(
         itemsMatch = mode != 0 && *mode == options[i];
     }
 
-    g_syncingRecipeSortCombo = true;
     if (!itemsMatch)
     {
         combo->removeAllItems();
@@ -1102,7 +1122,6 @@ MyGUI::ComboBox* SyncCraftingSortCombo(
     {
         combo->setIndexSelected(selectedIndex);
     }
-    g_syncingRecipeSortCombo = false;
     combo->setVisible(true);
     return combo;
 }
@@ -1120,7 +1139,7 @@ std::string SyncCoveragePartCombo(MyGUI::Widget* content, const CraftingCoverage
     }
     if (combo == 0)
     {
-        combo = CreateRecipeCombo(content, kCoveragePartComboName, &OnCraftingCategoryChanged);
+        combo = CreateRecipeCombo(content, kCoveragePartComboName, &OnCoveragePartChanged);
         if (combo == 0)
         {
             return std::string();
@@ -1142,14 +1161,11 @@ std::string SyncCoveragePartCombo(MyGUI::Widget* content, const CraftingCoverage
         options.push_back(PartOption(part->second, label));
     }
 
-    const std::size_t oldIndex = combo->getIndexSelected();
-    const std::string* previous = oldIndex < combo->getItemCount()
-        ? combo->getItemDataAt<std::string>(oldIndex, false) : 0;
     std::size_t selected = 0;
     bool itemsMatch = options.size() == combo->getItemCount();
     for (std::size_t i = 0; i < options.size(); ++i)
     {
-        if (previous != 0 && *previous == options[i].first)
+        if (g_filterPreferences.coveragePart == options[i].first)
         {
             selected = i;
         }
@@ -1177,6 +1193,11 @@ std::string SyncCoveragePartCombo(MyGUI::Widget* content, const CraftingCoverage
 
 void OnCoveragePercentChanged(MyGUI::EditBox* edit)
 {
+    if (g_syncingRecipeFilters)
+    {
+        return;
+    }
+
     const std::string text = edit->getOnlyText().asUTF8();
     std::string digits;
     for (std::size_t i = 0; i < text.size() && digits.size() < 3; ++i)
@@ -1194,7 +1215,12 @@ void OnCoveragePercentChanged(MyGUI::EditBox* edit)
     {
         edit->setOnlyText(digits);
     }
-    MarkSearchFilterDirty("crafting_coverage_changed");
+    const int minimum = std::atoi(digits.c_str());
+    if (g_filterPreferences.minimumCoverage != minimum)
+    {
+        g_filterPreferences.minimumCoverage = minimum;
+        MarkSearchFilterDirty("crafting_coverage_changed");
+    }
 }
 
 int SyncCoverageThreshold(MyGUI::Widget* content, bool hasCoveragePart)
@@ -1222,7 +1248,9 @@ int SyncCoverageThreshold(MyGUI::Widget* content, bool hasCoveragePart)
         if (edit != 0)
         {
             edit->setMaxTextLength(3);
-            edit->setOnlyText("0");
+            std::ostringstream minimum;
+            minimum << g_filterPreferences.minimumCoverage;
+            edit->setOnlyText(minimum.str());
             edit->eventEditTextChange += MyGUI::newDelegate(&OnCoveragePercentChanged);
         }
     }
@@ -1233,7 +1261,7 @@ int SyncCoverageThreshold(MyGUI::Widget* content, bool hasCoveragePart)
     if (edit != 0)
     {
         edit->setVisible(hasCoveragePart);
-        return hasCoveragePart ? std::atoi(edit->getOnlyText().asUTF8().c_str()) : 0;
+        return hasCoveragePart ? g_filterPreferences.minimumCoverage : 0;
     }
     return 0;
 }
@@ -1422,13 +1450,14 @@ CraftingCategorySelection UpdateCraftingCategoryControls(
         return selection;
     }
 
+    g_syncingRecipeFilters = true;
     const CraftingCategoryOptions categories = GetCraftingCategoryOptions(recipes);
     MyGUI::ComboBox* category = SyncCraftingCategoryCombo(
-        container, kCraftingCategoryComboName, categories, selection.category);
+        container, kCraftingCategoryComboName, categories, g_filterPreferences.category, selection.category);
     const CraftingCategoryOptions armorClasses = GetCraftingArmorClassOptions(
         category != 0 ? recipes : CraftingRecipeCategories(), selection.category);
     MyGUI::ComboBox* armorClass = SyncCraftingCategoryCombo(
-        container, kCraftingArmorClassComboName, armorClasses, selection.armorClass);
+        container, kCraftingArmorClassComboName, armorClasses, g_filterPreferences.armorClass, selection.armorClass);
     bool hasArmor = false;
     bool hasWeapons = false;
     bool hasMeleeWeapons = false;
@@ -1452,6 +1481,7 @@ CraftingCategorySelection UpdateCraftingCategoryControls(
     MyGUI::ComboBox* combos[] = { category, armorClass, coverage, sort };
     g_recipePanel.minimumWidth = MeasureRecipeFilterWidth(container, combos, sizeof(combos) / sizeof(combos[0]));
     LayoutFloatingPanel();
+    g_syncingRecipeFilters = false;
     return selection;
 }
 
@@ -1679,29 +1709,6 @@ SearchFocusHotkeyKind DetectSearchFocusHotkeyPressedEdge(MyGUI::EditBox* searchE
     }
 
     return SearchFocusHotkeyKind_None;
-}
-
-void ResetSearchQueryForTraderSwitch(const char* reason)
-{
-    const bool hadQuery = !g_searchQueryRaw.empty() || !g_searchQueryNormalized.empty();
-
-    g_searchQueryRaw.clear();
-    g_searchQueryNormalized.clear();
-    g_pendingSlashFocusBaseQuery.clear();
-    g_pendingSlashFocusTextSuppression = false;
-    g_suppressNextSearchEditChangeEvent = false;
-    g_loggedNumericOnlyQueryIgnored = false;
-    g_lastSearchSampleQueryLogged.clear();
-    g_lastZeroMatchQueryLogged.clear();
-    ResetObservedTraderEntriesState();
-
-    if (hadQuery)
-    {
-        std::stringstream line;
-        line << "search query reset"
-             << " reason=" << (reason == 0 ? "<unknown>" : reason);
-        LogDebugLine(line.str());
-    }
 }
 
 bool TryStripSingleSlashShortcutInsertion(
@@ -2053,7 +2060,9 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
     const std::string nextTraderTargetId = BuildTraderTargetIdentity(anchor, parent);
     if (!nextTraderTargetId.empty() && !g_activeTraderTargetId.empty() && nextTraderTargetId != g_activeTraderTargetId)
     {
-        ResetSearchQueryForTraderSwitch("target_changed");
+        g_loggedNumericOnlyQueryIgnored = false;
+        g_lastSearchSampleQueryLogged.clear();
+        g_lastZeroMatchQueryLogged.clear();
     }
     g_activeTraderTargetId = nextTraderTargetId;
     g_focusSearchEditOnNextInjection = g_autoFocusSearchInput;

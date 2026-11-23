@@ -4,7 +4,7 @@
 
 The modifications recorded for this edition on 2026-11-22 add the floating filter panel, equipment and body-part filters, and recipe sorting. The upstream search and integration code, authorship records, and license remain part of the project history. The Mod Hub adapter was inherited from the upstream project and uses Emkej's Emkejs-Mod-Core SDK. [Emkejs-Mod-Core](https://github.com/Emkej/Emkejs-Mod-Core)
 
-The v1.0.1 test build dated 2026-11-23 updates the floating panel's tab visibility and window order.
+The v1.0.1 test builds dated 2026-11-23 update the floating panel's visibility, window order, and filter persistence.
 
 ## Corresponding source
 
