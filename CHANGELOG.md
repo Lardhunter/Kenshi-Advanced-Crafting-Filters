@@ -1,11 +1,11 @@
 # Release notes
 
-## v1.0.1 (test build, 2026-11-23)
+## v1.0.1 (2026-11-23)
 
-- Keep the floating panel on the selected Crafting tab.
-- Preserve search, equipment categories, armor classes, coverage, and sorting through tab changes and recipe refreshes. Apply an All option when the current station lacks a preferred category.
-- Raise the panel when another window moves ahead of it on the game’s Window layer. Native dropdowns, dialogs, and tooltips retain their priority.
-- Handle the stock and Full Screen Map layouts through their shared MyGUI tab structure. Initial in-game testing with Full Screen Map confirmed the panel's visibility and window order.
+- Keep the floating panel above Crafting and hide it when another Overview tab is selected. Native dropdowns, dialogs, and tooltips retain their priority.
+- Preserve text search, weapon category, armor slot and class, coverage, and sorting through tab changes and recipe refreshes during the game session. Use the available default when a station lacks a preferred option.
+- Fix compatibility with Full Screen Map through the standard Overview tab structure. Panel visibility, window order, and retained filters passed in-game testing.
+- Limit the shared search controls to Crafting. The original plugin's Research-tab blueprint search is excluded from this version.
 
 ## v1.0.0 (2026-11-22)
 

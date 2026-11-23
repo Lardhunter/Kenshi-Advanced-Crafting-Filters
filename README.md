@@ -1,4 +1,4 @@
-# Kenshi Advanced Crafting Filters v1.0.1 test build 2
+# Kenshi Advanced Crafting Filters v1.0.1
 
 A Kenshi crafting plugin with text search, a floating filter panel, and recipe sorting. Equipment categories, armor slots and classes, and body-part choices come from recipes available at the selected station and the game's loaded equipment records.
 
@@ -9,23 +9,29 @@ A Kenshi crafting plugin with text search, a floating filter panel, and recipe s
 
 ## Installation
 
+For a Workshop installation, subscribe to the mod and enable it in the Kenshi launcher. [Steam Workshop listing](https://steamcommunity.com/sharedfiles/filedetails/?id=3844312914)
+
+For a manual installation, use the installation ZIP.
+
 1. Close Kenshi. Follow the linked RE_Kenshi release instructions if the loader is missing. Its version should appear on the Kenshi main menu after installation.
 2. Locate your Kenshi installation. In Steam, right-click **Kenshi** and choose **Manage → Browse local files**. For GOG or another standalone install, open the game folder containing `kenshi_x64.exe`.
-3. Extract `Kenshi-Advanced-Crafting-Filters-v1.0.1-test-2.zip` into that installation's `mods` directory. The test build uses its own mod folder.
+3. Extract `Kenshi-Advanced-Crafting-Filters-v1.0.1.zip` into that installation's `mods` directory.
 
    ```text
    Kenshi/
      mods/
-       Kenshi-Advanced-Crafting-Filters-v1.0.1-test-2/
-         Kenshi-Advanced-Crafting-Filters-v1.0.1-test-2.mod
+       Kenshi-Advanced-Crafting-Filters/
+         Kenshi-Advanced-Crafting-Filters.mod
          Kenshi-Advanced-Crafting-Filters.dll
          RE_Kenshi.json
          mod-config.json
    ```
 
+4. Enable **Kenshi-Advanced-Crafting-Filters** in the launcher and start Kenshi normally.
+
 Important: Disable or uninstall the original Organize the Crafting Stations plugin before installing Kenshi Advanced Crafting Filters. Running both plugins simultaneously may cause conflicts.
 
-Disable the published v1.0.0 copy and the first v1.0.1 test copy in the launcher. Enable **Kenshi-Advanced-Crafting-Filters-v1.0.1-test-2** for the compatibility checks.
+Enable a single copy of Kenshi Advanced Crafting Filters.
 
 ## Using the filters
 
@@ -45,7 +51,11 @@ The plugin remembers your choices during the game session. If a station lacks a 
 
 ## Compatibility and limitations
 
-The crafting implementation shipped in v1.0.0 was tested with **Genesis**. The first v1.0.1 test confirmed the panel's visibility and window order with **Full Screen Map**. In-game validation of the filter persistence changes is pending. Standard game records let the filters discover added equipment when other content mods use Kenshi's native crafting rows.
+The v1.0.1 panel visibility, window order, and filter persistence were tested in-game with **Full Screen Map (FSM)**. The panel stays above the Overview on Crafting and hides on other tabs. FSM is optional.
+
+The crafting implementation shipped in v1.0.0 was tested with **Genesis**. Standard game records let the filters discover added equipment when other content mods use Kenshi's native crafting rows. Other UI overhauls may need separate compatibility checks.
+
+The original plugin's Research-tab blueprint search shared the floating controls. Version 1.0.1 limits those controls to Crafting, so blueprint search is unavailable on the Research tab. Kenshi's native Research controls and the crafting recipe refresh after research still work as before.
 
 Some UI replacements can leave only text search available. Weapon damage modes apply to melee weapon previews. Crossbows and unresolved weapon models have no comparable value in those modes. A finished weapon may have a different grade than its preview. If a newly researched recipe is missing, switch stations or reopen Crafting to refresh the list.
 
@@ -58,10 +68,10 @@ Some UI replacements can leave only text search available. Weapon damage modes a
 
 ## Uninstallation
 
-Close the game, disable **Kenshi-Advanced-Crafting-Filters-v1.0.1-test-2** in the launcher, and remove its folder from `mods`. You can re-enable the published v1.0.0 copy after disabling the test build.
+Close the game and disable **Kenshi-Advanced-Crafting-Filters** in the launcher. For a Workshop installation, unsubscribe from the item. For a manual installation, remove the mod's own folder from `mods`. Keep a copy of `mod-config.json` if you want to reuse your panel settings.
 
 ## Credits and source
 
 Derived from Emkej's [Organize the Crafting Stations](https://github.com/Emkej/Organize-the-Crafting-Stations). The advanced equipment, coverage, sorting, and floating panel changes are part of this modified edition. [License](LICENSE) · [Attribution and source notice](NOTICE.md) · [Release notes](CHANGELOG.md)
 
-The corresponding source for this local test build is on the `fix/v1.0.1-fsm-compatibility` development branch. The project includes the build instructions and packaging scripts.
+The corresponding source is in `Kenshi-Advanced-Crafting-Filters-v1.0.1-source.zip`. It includes the build instructions and packaging scripts. [GitHub Releases](https://github.com/Lardhunter/Kenshi-Advanced-Crafting-Filters/releases)

@@ -4,11 +4,11 @@
 
 The modifications recorded for this edition on 2026-11-22 add the floating filter panel, equipment and body-part filters, and recipe sorting. The upstream search and integration code, authorship records, and license remain part of the project history. The Mod Hub adapter was inherited from the upstream project and uses Emkej's Emkejs-Mod-Core SDK. [Emkejs-Mod-Core](https://github.com/Emkej/Emkejs-Mod-Core)
 
-The v1.0.1 test builds dated 2026-11-23 update the floating panel's visibility, window order, and filter persistence.
+Version 1.0.1, dated 2026-11-23, updates the floating panel's visibility, window order, and filter persistence.
 
 ## Corresponding source
 
-The source for the local v1.0.1 test build is on the `fix/v1.0.1-fsm-compatibility` development branch. When offering a binary for download, make its corresponding source available in the same way at no additional charge. Include the plugin sources, project files, mod template, and scripts to build and package the matching version. [GNU GPLv3, section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6)
+Distribute `Kenshi-Advanced-Crafting-Filters-v1.0.1-source.zip` alongside `Kenshi-Advanced-Crafting-Filters-v1.0.1.zip`. The source bundle includes the plugin sources, project files, mod template, and scripts to build and package this version. When offering the binary for download, make its corresponding source available in the same way at no additional charge. [GNU GPLv3, section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6)
 
 ## External components
 

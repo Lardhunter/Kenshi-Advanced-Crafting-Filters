@@ -1,4 +1,4 @@
-# Building Kenshi Advanced Crafting Filters v1.0.0
+# Building Kenshi Advanced Crafting Filters v1.0.1
 
 Build this source with MSVC 2010 SP1 (v100), Release, x64. The release build uses the x86-hosted x64 compiler, the Visual C++ 2010 MSBuild targets, and Windows SDK 7.1 headers and x64 libraries. A compatible MSBuild host runs the project. The build uses the existing Windows PowerShell and toolchain installation.
 
@@ -20,7 +20,7 @@ $buildPaths = @{
     WindowsSdkDir        = 'C:\Program Files\Microsoft SDKs\Windows\v7.1'
     KenshiLibDir         = 'C:\Dependencies\KenshiLib_Examples_deps\KenshiLib'
     BoostDir             = 'C:\Dependencies\KenshiLib_Examples_deps\boost_1_60_0'
-    OutputDirectory      = 'C:\Builds\Kenshi-Advanced-Crafting-Filters-v1.0.0-build'
+    OutputDirectory      = 'C:\Builds\Kenshi-Advanced-Crafting-Filters-v1.0.1-build'
 }
 .\scripts\build-release-v100.ps1 @buildPaths
 ```
@@ -31,13 +31,13 @@ Use a separate existing release output directory for packaging. The packaging sc
 
 ```powershell
 $builtDll = Join-Path $buildPaths.OutputDirectory 'bin\Organize-the-Crafting-Stations.dll'
-.\scripts\package-release.ps1 -BuiltDll $builtDll -OutputDirectory 'C:\Releases\v1.0.0'
+.\scripts\package-release.ps1 -BuiltDll $builtDll -OutputDirectory 'C:\Releases\v1.0.1'
 ```
 
 ## Release provenance
 
-The runtime source is recorded at `3161c823ed67b2225fa319cbee1a3b2ea7358342` in the development repository. The three Version 4 DLL copies, including the Genesis-tested installation, had the same SHA-256.
+The in-game v1.0.1 test used the runtime source at `62d92c42e66a0244ba9ddd4c36f171d23f0a77fe`. The release uses the same runtime source and build scripts. The installed test DLL and saved test build had the following SHA-256.
 
 ```text
-787BDCBAAAFA18F0A79102C3E0E716301DCB9EBF9B9523B57A041AE3C968E84A
+1BCB67944EF0DB19CD36E81CAF8D9F373B4629BA7B51EC44C93A78FF0E9A7A6E
 ```
