@@ -12,6 +12,8 @@
 
 #include <mygui/MyGUI_Gui.h>
 #include <mygui/MyGUI_InputManager.h>
+#include <mygui/MyGUI_TabControl.h>
+#include <mygui/MyGUI_TabItem.h>
 #include <mygui/MyGUI_Widget.h>
 #include <mygui/MyGUI_Window.h>
 
@@ -820,6 +822,23 @@ void DumpVisibleCraftingWindowCandidateDiagnostics()
     }
 }
 
+MyGUI::TabControl* FindOverviewTabs(MyGUI::Widget* parent)
+{
+    MyGUI::Widget* widget = FindNamedDescendantByTokenRecursive(parent, "TabsMain", false);
+    return widget != 0 ? widget->castType<MyGUI::TabControl>(false) : 0;
+}
+
+MyGUI::TabItem* GetActiveCraftingTab(MyGUI::TabControl* tabs)
+{
+    if (tabs == 0 || !tabs->getInheritedVisible())
+    {
+        return 0;
+    }
+
+    MyGUI::TabItem* selected = tabs->getItemSelected();
+    return selected != 0 && ContainsAsciiCaseInsensitive(selected->getName(), "CraftTab") ? selected : 0;
+}
+
 bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent)
 {
     if (outAnchor != 0)
@@ -859,7 +878,7 @@ bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** 
         }
 
         MyGUI::Widget* parent = ResolveInjectionParent(root);
-        if (parent == 0)
+        if (GetActiveCraftingTab(FindOverviewTabs(parent)) == 0)
         {
             continue;
         }
@@ -925,7 +944,8 @@ bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** 
 
 bool IsLikelyCraftingWindow(MyGUI::Widget* parent)
 {
-    return ComputeCraftingWindowCandidateScore(parent, 0) > 0;
+    return GetActiveCraftingTab(FindOverviewTabs(parent)) != 0
+        && ComputeCraftingWindowCandidateScore(parent, 0) > 0;
 }
 
 bool TryResolveVisibleTraderTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent)

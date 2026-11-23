@@ -5,6 +5,8 @@
 
 namespace MyGUI
 {
+class TabControl;
+class TabItem;
 class Widget;
 class Window;
 }
@@ -28,6 +30,8 @@ bool HasTraderStructure(MyGUI::Widget* parent);
 void DumpTraderTargetProbe();
 void DumpVisibleWindowCandidateDiagnostics();
 void DumpVisibleCraftingWindowCandidateDiagnostics();
+MyGUI::TabControl* FindOverviewTabs(MyGUI::Widget* parent);
+MyGUI::TabItem* GetActiveCraftingTab(MyGUI::TabControl* tabs);
 bool IsLikelyCraftingWindow(MyGUI::Widget* parent);
 bool TryResolveVisibleCraftingTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent);
 bool TryResolveVisibleTraderTarget(MyGUI::Widget** outAnchor, MyGUI::Widget** outParent);

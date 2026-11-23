@@ -1,5 +1,11 @@
 # Release notes
 
+## v1.0.1 (test build, 2026-11-23)
+
+- Keep the floating filters on the selected Crafting tab and retain the panel state when switching tabs.
+- Raise the panel when another window moves ahead of it on the game’s Window layer. Native dropdowns, dialogs, and tooltips retain their priority.
+- Handle the stock and Full Screen Map layouts through their shared MyGUI tab structure. In-game validation is pending.
+
 ## v1.0.0 (2026-11-22)
 
 - Browse dynamic weapon categories and armor slots and classes from the selected station's available equipment.

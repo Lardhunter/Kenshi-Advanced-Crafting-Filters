@@ -15,10 +15,13 @@
 #include <mygui/MyGUI_ComboBox.h>
 #include <mygui/MyGUI_EditBox.h>
 #include <mygui/MyGUI_Gui.h>
+#include <mygui/MyGUI_ILayer.h>
 #include <mygui/MyGUI_InputManager.h>
 #include <mygui/MyGUI_LayerManager.h>
 #include <mygui/MyGUI_RenderManager.h>
 #include <mygui/MyGUI_ResourceManager.h>
+#include <mygui/MyGUI_TabControl.h>
+#include <mygui/MyGUI_TabItem.h>
 #include <mygui/MyGUI_TextBox.h>
 #include <mygui/MyGUI_Widget.h>
 #include <mygui/MyGUI_Window.h>
@@ -69,15 +72,15 @@ const int kResizeGripSize = 22;
 
 struct FloatingRecipePanel : MyGUI::IUnlinkWidget
 {
-    FloatingRecipePanel() : manager(0), root(0), content(0), target(0), scope(0),
+    FloatingRecipePanel() : manager(0), root(0), content(0), tabs(0), craftingTab(0),
         minimumWidth(kPanelMinWidth), minimumHeight(0), viewport(0, 0) {}
 
     void _unlinkWidget(MyGUI::Widget* widget) override
     {
         if (widget == root) root = 0;
         if (widget == content) content = 0;
-        if (widget == target) target = 0;
-        if (widget == scope) scope = 0;
+        if (widget == tabs) tabs = 0;
+        if (widget == craftingTab) craftingTab = 0;
     }
 
     void Disconnect()
@@ -89,16 +92,16 @@ struct FloatingRecipePanel : MyGUI::IUnlinkWidget
         manager = 0;
         root = 0;
         content = 0;
-        target = 0;
-        scope = 0;
+        tabs = 0;
+        craftingTab = 0;
         minimumWidth = kPanelMinWidth;
     }
 
     MyGUI::WidgetManager* manager;
     MyGUI::Widget* root;
     MyGUI::Widget* content;
-    MyGUI::Widget* target;
-    MyGUI::Widget* scope;
+    MyGUI::TabControl* tabs;
+    MyGUI::TabItem* craftingTab;
     int minimumWidth;
     int minimumHeight;
     MyGUI::IntSize viewport;
@@ -205,113 +208,6 @@ TraderSearchInputBehavior::Text ToSearchInputText(const MyGUI::UString& text)
         result.push_back(static_cast<TraderSearchInputBehavior::Codepoint>(text[i]));
     }
     return result;
-}
-
-MyGUI::Widget* FindNearestVisibleCommonAncestor(
-    MyGUI::Widget* parent,
-    MyGUI::Widget* left,
-    MyGUI::Widget* right)
-{
-    for (MyGUI::Widget* currentLeft = left; currentLeft != 0 && currentLeft != parent; currentLeft = currentLeft->getParent())
-    {
-        if (!currentLeft->getInheritedVisible())
-        {
-            continue;
-        }
-
-        for (MyGUI::Widget* currentRight = right;
-             currentRight != 0 && currentRight != parent;
-             currentRight = currentRight->getParent())
-        {
-            if (currentLeft == currentRight && currentRight->getInheritedVisible())
-            {
-                return currentLeft;
-            }
-        }
-    }
-
-    return 0;
-}
-
-MyGUI::Widget* PromoteScopedControlsMarker(MyGUI::Widget* parent, MyGUI::Widget* marker)
-{
-    if (marker == 0)
-    {
-        return 0;
-    }
-
-    MyGUI::Widget* current = marker;
-    for (std::size_t depth = 0; depth < 2; ++depth)
-    {
-        MyGUI::Widget* next = current->getParent();
-        if (next == 0 || next == parent || !next->getInheritedVisible())
-        {
-            break;
-        }
-        current = next;
-    }
-
-    return current;
-}
-
-MyGUI::Widget* ResolveCraftingControlsParent(MyGUI::Widget* parent)
-{
-    if (parent == 0)
-    {
-        return 0;
-    }
-
-    const char* scopedPanelTokens[] =
-    {
-        "BlueprintsAvailablePanel",
-        "ResearchQueuePanel",
-        "QueueItemsPanel",
-        "CraftingStationsList"
-    };
-
-    MyGUI::Widget* firstMarker = 0;
-    MyGUI::Widget* scopedRoot = 0;
-    bool usedCommonAncestor = false;
-    for (std::size_t index = 0; index < sizeof(scopedPanelTokens) / sizeof(scopedPanelTokens[0]); ++index)
-    {
-        MyGUI::Widget* marker = FindNamedDescendantByTokenRecursive(parent, scopedPanelTokens[index], true);
-        if (marker == 0)
-        {
-            continue;
-        }
-
-        if (firstMarker == 0)
-        {
-            firstMarker = marker;
-            scopedRoot = marker;
-            continue;
-        }
-
-        MyGUI::Widget* commonAncestor = FindNearestVisibleCommonAncestor(parent, scopedRoot, marker);
-        if (commonAncestor != 0 && commonAncestor != parent)
-        {
-            scopedRoot = commonAncestor;
-            usedCommonAncestor = true;
-        }
-    }
-
-    if (scopedRoot == 0)
-    {
-        return parent;
-    }
-
-    if (usedCommonAncestor)
-    {
-        return scopedRoot;
-    }
-
-    MyGUI::Widget* promoted = PromoteScopedControlsMarker(parent, firstMarker);
-    if (promoted != 0)
-    {
-        return promoted;
-    }
-
-    return parent;
 }
 
 MyGUI::UString ToMyGuiText(const TraderSearchInputBehavior::Text& text)
@@ -879,7 +775,7 @@ MyGUI::TextBox* FindSearchCountTextBox()
 
 MyGUI::Widget* ResolveTraderParentFromControlsContainer()
 {
-    return g_recipePanel.target;
+    return g_recipePanel.craftingTab;
 }
 
 void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason)
@@ -1604,8 +1500,8 @@ void TickSearchContainerDrag()
 }
 
 static bool BuildControlsScaffold(
-    MyGUI::Widget* target,
-    MyGUI::Widget* scope,
+    MyGUI::TabControl* tabs,
+    MyGUI::TabItem* craftingTab,
     const SearchUiCallbacks& callbacks)
 {
     MyGUI::Gui* gui = MyGUI::Gui::getInstancePtr();
@@ -1613,7 +1509,7 @@ static bool BuildControlsScaffold(
     MyGUI::LayerManager* layers = MyGUI::LayerManager::getInstancePtr();
     const MyGUI::IntSize view = GetRecipePanelViewport();
     const char* layer = "Window";
-    if (target == 0 || scope == 0 || gui == 0 || widgets == 0 || layers == 0 || !layers->isExist(layer)
+    if (tabs == 0 || craftingTab == 0 || gui == 0 || widgets == 0 || layers == 0 || !layers->isExist(layer)
         || view.width < kCollapsedPanelWidth || view.height < kPanelHeaderHeight)
     {
         return false;
@@ -1627,7 +1523,7 @@ static bool BuildControlsScaffold(
         return false;
     }
 
-    const bool recipeTab = FindNamedDescendantByTokenRecursive(scope, kCraftingRecipesPanelName, true) != 0;
+    const bool recipeTab = FindNamedDescendantByTokenRecursive(craftingTab, kCraftingRecipesPanelName, true) != 0;
     const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(
         view, kPanelMinWidth, FilterPanelMinimumHeight(recipeTab ? 5 : 1));
     MyGUI::IntCoord coord(kPanelPadding, kPanelPadding, expandedSize.width, expandedSize.height);
@@ -1638,8 +1534,8 @@ static bool BuildControlsScaffold(
     }
     else
     {
-        const MyGUI::Window* window = FindOwningWindow(scope);
-        const MyGUI::IntCoord bounds = window != 0 ? window->getAbsoluteCoord() : scope->getAbsoluteCoord();
+        const MyGUI::Window* window = FindOwningWindow(craftingTab);
+        const MyGUI::IntCoord bounds = window != 0 ? window->getAbsoluteCoord() : craftingTab->getAbsoluteCoord();
         if (g_filterPanelCollapsed || !PlacePanelOutsideWindow(bounds, view, coord))
         {
             g_filterPanelCollapsed = true;
@@ -1735,8 +1631,8 @@ static bool BuildControlsScaffold(
     g_recipePanel.manager = widgets;
     g_recipePanel.root = root;
     g_recipePanel.content = container;
-    g_recipePanel.target = target;
-    g_recipePanel.scope = scope;
+    g_recipePanel.tabs = tabs;
+    g_recipePanel.craftingTab = craftingTab;
     LayoutFloatingPanel();
     UpdateSearchCountText(0, 0, 0);
     FocusSearchEditIfRequested(searchEdit, "controls_built");
@@ -2138,10 +2034,12 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
         return false;
     }
 
-    if (!IsLikelyCraftingWindow(parent))
+    MyGUI::TabControl* tabs = FindOverviewTabs(parent);
+    MyGUI::TabItem* craftingTab = GetActiveCraftingTab(tabs);
+    if (craftingTab == 0)
     {
         std::stringstream line;
-        line << "rejecting injection target reason=not_likely_crafting_window"
+        line << "rejecting injection target reason=crafting_tab_inactive"
              << " source=" << (sourceTag == 0 ? "<unknown>" : sourceTag)
              << " anchor=" << SafeWidgetName(anchor)
              << " parent=" << SafeWidgetName(parent);
@@ -2160,19 +2058,13 @@ bool TryInjectControlsToTarget(MyGUI::Widget* anchor, MyGUI::Widget* parent, con
     g_activeTraderTargetId = nextTraderTargetId;
     g_focusSearchEditOnNextInjection = g_autoFocusSearchInput;
 
-    MyGUI::Widget* controlsParent = ResolveCraftingControlsParent(parent);
-    if (controlsParent == 0)
-    {
-        controlsParent = parent;
-    }
-
     DestroyControlsIfPresent();
     SearchUiCallbacks callbacks;
     callbacks.onSearchTextChanged = &OnSearchTextChanged;
     callbacks.onSearchEditFocusChanged = &OnSearchEditKeyFocusChanged;
     callbacks.onSearchPlaceholderClicked = &OnSearchPlaceholderClicked;
     callbacks.onSearchClearButtonClicked = &OnSearchClearButtonClicked;
-    if (!BuildControlsScaffold(parent, controlsParent, callbacks))
+    if (!BuildControlsScaffold(tabs, craftingTab, callbacks))
     {
         LogErrorLine("failed to build phase 2 controls scaffold");
         return false;
@@ -2249,6 +2141,44 @@ bool TryInjectControlsToHoveredWindowDirect()
     return TryInjectControlsToTarget(anchor, parent, "crafting-hover-direct");
 }
 
+static void HideRecipePanel(MyGUI::Widget* panel, MyGUI::InputManager* input)
+{
+    FinalizeSearchContainerDrag("crafting_panel_hidden");
+    ResetPendingSearchEditShortcut();
+    g_pendingSlashFocusBaseQuery.clear();
+    g_pendingSlashFocusTextSuppression = false;
+    if (input != 0)
+    {
+        if (input->isCaptureMouse() && IsDescendantOf(input->getMouseFocusWidget(), panel))
+        {
+            input->resetMouseCaptureWidget();
+        }
+        if (IsDescendantOf(input->getKeyFocusWidget(), panel))
+        {
+            input->resetKeyFocusWidget();
+        }
+    }
+    panel->setVisible(false);
+}
+
+static void RaiseRecipePanelIfCovered(MyGUI::Widget* panel)
+{
+    const MyGUI::ILayer* layer = panel->getLayer();
+    const MyGUI::ILayerNode* node = panel->getLayerNode();
+    MyGUI::LayerManager* layers = MyGUI::LayerManager::getInstancePtr();
+    if (layer == 0 || node == 0 || layers == 0)
+    {
+        return;
+    }
+
+    // Raise only within Window so native Popup lists and higher dialogs keep priority.
+    const std::size_t count = layer->getLayerNodeCount();
+    if (count != 0 && layer->getLayerNodeAt(count - 1) != node)
+    {
+        layers->upLayerItem(panel);
+    }
+}
+
 void EnsureControlsInjectedIfEnabled()
 {
     if (!g_controlsEnabled)
@@ -2259,18 +2189,23 @@ void EnsureControlsInjectedIfEnabled()
     MyGUI::InputManager* input = MyGUI::InputManager::getInstancePtr();
     const bool hasModal = input != 0 && input->isModalAny();
     MyGUI::Widget* controlsContainer = FindControlsContainer();
-    if (controlsContainer != 0 && g_recipePanel.scope != 0 && g_recipePanel.target != 0
-        && g_recipePanel.scope->getInheritedVisible())
+    if (controlsContainer != 0 && g_recipePanel.tabs != 0 && g_recipePanel.craftingTab != 0)
     {
-        const bool panelVisible = !hasModal;
-        if (controlsContainer->getVisible() != panelVisible)
+        if (hasModal || GetActiveCraftingTab(g_recipePanel.tabs) != g_recipePanel.craftingTab)
         {
-            if (!panelVisible)
+            if (controlsContainer->getVisible())
             {
-                FinalizeSearchContainerDrag("game_modal");
+                HideRecipePanel(controlsContainer, input);
             }
-            controlsContainer->setVisible(panelVisible);
+            return;
         }
+
+        if (!controlsContainer->getVisible())
+        {
+            controlsContainer->setVisible(true);
+            MarkSearchFilterDirty("crafting_panel_shown");
+        }
+        RaiseRecipePanelIfCovered(controlsContainer);
 
         const MyGUI::IntSize viewport = GetRecipePanelViewport();
         if (viewport.width != g_recipePanel.viewport.width || viewport.height != g_recipePanel.viewport.height)
@@ -2399,8 +2334,6 @@ bool IsDiagnosticsHotkeyPressedEdge()
 
 void TickPhase2ControlsScaffold()
 {
-    TickSearchContainerDrag();
-
     if (IsDiagnosticsHotkeyPressedEdge())
     {
         DumpOnDemandTraderDiagnosticsSnapshot();
@@ -2443,6 +2376,7 @@ void TickPhase2ControlsScaffold()
     {
         return;
     }
+    TickSearchContainerDrag();
     bool handledSearchShortcut = false;
     MyGUI::EditBox* searchEdit = FindSearchEditBox();
     if (searchEdit != 0)
