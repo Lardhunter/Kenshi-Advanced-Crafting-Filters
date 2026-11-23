@@ -40,6 +40,7 @@ const char* kControlsContainerName = "OTCS_ControlsContainer";
 const char* kSearchEditName = "OTCS_SearchEdit";
 const char* kSearchPlaceholderName = "OTCS_SearchPlaceholder";
 const char* kSearchClearButtonName = "OTCS_SearchClearButton";
+const char* kClearFiltersName = "OTCS_ClearFilters";
 const char* kSearchDragHandleName = "OTCS_SearchDragHandle";
 const char* kSearchCountTextName = "OTCS_SearchCountText";
 const char* kCraftingCategoryComboName = "OTCS_RecipeCategory";
@@ -69,11 +70,13 @@ const int kPanelHeaderHeight = 38;
 const int kCollapsedPanelWidth = 190;
 const int kSearchCountWidth = 96;
 const int kResizeGripSize = 22;
+const int kClearFiltersWidth = 114;
+const int kClearFiltersHeight = 26;
 
 struct FloatingRecipePanel : MyGUI::IUnlinkWidget
 {
     FloatingRecipePanel() : manager(0), root(0), content(0), tabs(0), tab(0), mode(OverviewFilterNone),
-        minimumWidth(kPanelMinWidth), minimumHeight(0), viewport(0, 0) {}
+        hasArmorClassOptions(false), minimumWidth(kPanelMinWidth), minimumHeight(0), viewport(0, 0) {}
 
     void _unlinkWidget(MyGUI::Widget* widget) override
     {
@@ -95,6 +98,7 @@ struct FloatingRecipePanel : MyGUI::IUnlinkWidget
         tabs = 0;
         tab = 0;
         mode = OverviewFilterNone;
+        hasArmorClassOptions = false;
         minimumWidth = kPanelMinWidth;
     }
 
@@ -104,6 +108,7 @@ struct FloatingRecipePanel : MyGUI::IUnlinkWidget
     MyGUI::TabControl* tabs;
     MyGUI::TabItem* tab;
     OverviewFilterMode mode;
+    bool hasArmorClassOptions;
     int minimumWidth;
     int minimumHeight;
     MyGUI::IntSize viewport;
@@ -408,7 +413,7 @@ MyGUI::IntSize GetRecipePanelViewport()
 int FilterPanelMinimumHeight(int rowCount)
 {
     const int controlHeight = kPanelPadding + rowCount * (g_searchInputConfiguredHeight + kPanelGap)
-        + kResizeGripSize + kPanelPadding;
+        + (std::max)(kResizeGripSize, kClearFiltersHeight) + kPanelPadding;
     return kPanelHeaderHeight + (std::max)(kPanelMinBodyHeight, controlHeight);
 }
 
@@ -736,6 +741,7 @@ bool IsSlashCharacterChordDown(bool shiftDown, bool ctrlDown, bool altDown)
 
 void OnSearchEditKeyPressed(MyGUI::Widget* sender, MyGUI::KeyCode keyCode, MyGUI::Char character);
 void OnSearchEditKeyReleased(MyGUI::Widget* sender, MyGUI::KeyCode keyCode);
+void OnClearFiltersClicked(MyGUI::Widget* sender);
 
 MyGUI::Widget* FindControlsContainer()
 {
@@ -1419,8 +1425,10 @@ void LayoutFloatingPanel()
         return;
     }
     g_recipePanel.viewport = view;
+    // Reserve the row when selecting All Recipes can make the Class dropdown reappear.
+    const bool reserveArmorClass = showArmorClass || g_recipePanel.hasArmorClassOptions;
     g_recipePanel.minimumHeight = FilterPanelMinimumHeight(
-        1 + showCategory + showArmorClass + showCoverage + showThreshold + showSort);
+        1 + showCategory + reserveArmorClass + showCoverage + showThreshold + showSort);
     const SearchPanelGeometry& geometry = PanelGeometry(g_recipePanel.mode);
     const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(
         view, geometry, g_recipePanel.minimumWidth, g_recipePanel.minimumHeight);
@@ -1463,6 +1471,9 @@ void LayoutFloatingPanel()
     }
     LayoutFilterRow(content, sort, kCraftingSortLabelName, rowWidth, rowHeight, rowTop);
 
+    MyGUI::Widget* clearFilters = FindNamedDescendantRecursive(content, kClearFiltersName, false);
+    clearFilters->setCoord(kPanelPadding, content->getHeight() - kPanelPadding - kClearFiltersHeight,
+        kClearFiltersWidth, kClearFiltersHeight);
     MyGUI::Widget* grip = FindNamedDescendantRecursive(content, kCraftingResizeGripName, false);
     grip->setCoord(content->getWidth() - kResizeGripSize - 3, content->getHeight() - kResizeGripSize - 3,
         kResizeGripSize, kResizeGripSize);
@@ -1489,14 +1500,18 @@ CraftingCategorySelection UpdateCraftingCategoryControls(
     MyGUI::ComboBox* armorClass = SyncCraftingCategoryCombo(
         container, kCraftingArmorClassComboName, armorClasses, g_filterPreferences.armorClass, selection.armorClass);
     bool hasArmor = false;
+    bool hasArmorClassOptions = false;
     bool hasWeapons = false;
     bool hasMeleeWeapons = false;
     for (CraftingRecipeCategories::const_iterator recipe = recipes.begin(); recipe != recipes.end(); ++recipe)
     {
         hasArmor = hasArmor || recipe->kind == CraftingRecipeCategory::Armor;
+        hasArmorClassOptions = hasArmorClassOptions
+            || (recipe->kind == CraftingRecipeCategory::Armor && recipe->armorClass >= 0);
         hasWeapons = hasWeapons || recipe->kind == CraftingRecipeCategory::Weapon;
         hasMeleeWeapons = hasMeleeWeapons || recipe->supportsWeaponStats;
     }
+    g_recipePanel.hasArmorClassOptions = category != 0 && hasArmorClassOptions;
     selection.coveragePart = SyncCoveragePartCombo(container, parts);
     const bool hasCoveragePart = !selection.coveragePart.empty();
     selection.minimumCoverage = SyncCoverageThreshold(container, hasCoveragePart);
@@ -1667,9 +1682,12 @@ static bool BuildControlsScaffold(
         "Kenshi_TextboxStandardText", MyGUI::IntCoord(0, 0, 140, 26), MyGUI::Align::Default, kSearchPlaceholderName);
     MyGUI::Button* clearButton = container->createWidget<MyGUI::Button>(
         "Kenshi_Button1", MyGUI::IntCoord(0, 0, 26, 26), MyGUI::Align::Default, kSearchClearButtonName);
+    MyGUI::Button* clearFilters = container->createWidget<MyGUI::Button>(
+        "Kenshi_Button1", MyGUI::IntCoord(0, 0, kClearFiltersWidth, kClearFiltersHeight),
+        MyGUI::Align::Default, kClearFiltersName);
     MyGUI::TextBox* countText = container->createWidget<MyGUI::TextBox>(
         "Kenshi_TextboxStandardText", MyGUI::IntCoord(0, 0, kSearchCountWidth, 26), MyGUI::Align::Default, kSearchCountTextName);
-    if (searchEdit == 0 || placeholder == 0 || clearButton == 0 || countText == 0)
+    if (searchEdit == 0 || placeholder == 0 || clearButton == 0 || clearFilters == 0 || countText == 0)
     {
         LogErrorLine("failed to create floating panel search controls");
         DestroyWidgetDirect(root);
@@ -1689,6 +1707,8 @@ static bool BuildControlsScaffold(
     placeholder->eventMouseButtonClick += MyGUI::newDelegate(callbacks.onSearchPlaceholderClicked);
     clearButton->setCaption("x");
     clearButton->eventMouseButtonClick += MyGUI::newDelegate(callbacks.onSearchClearButtonClicked);
+    clearFilters->setCaption("Clear Filters");
+    clearFilters->eventMouseButtonClick += MyGUI::newDelegate(&OnClearFiltersClicked);
     countText->setTextAlign(MyGUI::Align::Right | MyGUI::Align::VCenter);
     countText->setNeedMouseFocus(false);
 
@@ -1918,6 +1938,35 @@ void OnSearchClearButtonClicked(MyGUI::Widget*)
     }
 
     SetSearchQueryAndRefresh(searchEdit, "", "clear_button", true);
+}
+
+void OnClearFiltersClicked(MyGUI::Widget*)
+{
+    MyGUI::EditBox* searchEdit = FindSearchEditBox();
+    if (searchEdit == 0)
+    {
+        return;
+    }
+
+    if (g_recipePanel.mode == OverviewFilterCrafting)
+    {
+        // Keep the expanded size when resetting coverage removes the threshold row.
+        SearchPanelGeometry& geometry = PanelGeometry(OverviewFilterCrafting);
+        geometry.width = (std::max)(geometry.width, g_recipePanel.root->getWidth());
+        geometry.height = (std::max)(geometry.height, g_recipePanel.root->getHeight());
+        g_filterPreferences = CraftingCategorySelection();
+
+        MyGUI::Widget* widget = FindNamedDescendantRecursive(g_recipePanel.content, kCoveragePercentName, false);
+        MyGUI::EditBox* threshold = widget != 0 ? widget->castType<MyGUI::EditBox>(false) : 0;
+        if (threshold != 0)
+        {
+            g_syncingRecipeFilters = true;
+            threshold->setOnlyText("0");
+            g_syncingRecipeFilters = false;
+        }
+    }
+
+    SetSearchQueryAndRefresh(searchEdit, "", "clear_filters", false);
 }
 
 void OnSearchPlaceholderClicked(MyGUI::Widget*)
@@ -2204,6 +2253,10 @@ static void HideRecipePanel(MyGUI::Widget* panel, MyGUI::InputManager* input)
         }
     }
     panel->setVisible(false);
+    if (input != 0 && IsDescendantOf(input->getMouseFocusWidget(), panel))
+    {
+        input->_resetMouseFocusWidget();
+    }
 }
 
 static void RaiseRecipePanelIfCovered(MyGUI::Widget* panel)

@@ -54,12 +54,14 @@ unsigned long long g_observedCraftingRecipeRevision = 0;
 
 struct ResearchListState
 {
-    ResearchListState() : panel(0), scope(0), category(-1), rowCount(0), selectedCategory(MyGUI::ITEM_NONE), revision(0) {}
+    ResearchListState() : panel(0), scope(0), category(-1), rowCount(0), selectedCategory(MyGUI::ITEM_NONE),
+        revision(0), visible(false) {}
 
     bool operator==(const ResearchListState& other) const
     {
         return panel == other.panel && scope == other.scope && category == other.category
-            && rowCount == other.rowCount && selectedCategory == other.selectedCategory && revision == other.revision;
+            && rowCount == other.rowCount && selectedCategory == other.selectedCategory
+            && revision == other.revision && visible == other.visible;
     }
 
     DatapanelGUI* panel;
@@ -68,6 +70,7 @@ struct ResearchListState
     int rowCount;
     std::size_t selectedCategory;
     long revision;
+    bool visible;
 };
 
 ResearchListState g_observedResearchList;
@@ -90,6 +93,7 @@ ResearchListState ReadResearchList(MyGUI::TabItem* tab)
 
     state.panel = screen->availableList;
     state.scope = scope;
+    state.visible = scope->getInheritedVisible();
     state.category = state.panel->_NV_getCurrentCategory();
     state.rowCount = state.category >= 0 ? state.panel->getNumLines(state.category) : 0;
     MyGUI::ListBox* categories = screen->researchCategoriesListBox;
@@ -335,6 +339,12 @@ void ApplyResearchSearch(MyGUI::TabItem* tab, bool forceShowAll)
 {
     const ResearchListState state = ReadResearchList(tab);
     g_observedResearchList = state;
+    if (!state.visible && !forceShowAll)
+    {
+        UpdateSearchCountText(0, 0, 0);
+        return;
+    }
+
     const std::string query = forceShowAll ? std::string() : GetNormalizedResearchSearchQuery();
     std::size_t visibleCount = 0;
     std::size_t totalCount = 0;
