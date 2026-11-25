@@ -339,17 +339,17 @@ void ApplyResearchSearch(MyGUI::TabItem* tab, bool forceShowAll)
 {
     const ResearchListState state = ReadResearchList(tab);
     g_observedResearchList = state;
-    const bool globalResults = !forceShowAll && UpdateResearchResultControls(state.revision);
+    const bool browserActive = !forceShowAll && UpdateResearchResultControls(state.revision);
     if (!state.visible && !forceShowAll)
     {
-        if (!globalResults)
+        if (!browserActive)
         {
             UpdateSearchCountText(0, 0, 0);
         }
         return;
     }
 
-    const std::string query = forceShowAll || globalResults ? std::string() : GetNormalizedResearchSearchQuery();
+    const std::string query = forceShowAll || browserActive ? std::string() : GetNormalizedResearchSearchQuery();
     std::size_t visibleCount = 0;
     std::size_t totalCount = 0;
     std::vector<MyGUI::Widget*> widgets;
@@ -415,7 +415,7 @@ void ApplyResearchSearch(MyGUI::TabItem* tab, bool forceShowAll)
         visibleCount += originallyVisible && show ? 1 : 0;
     }
 
-    if (!globalResults)
+    if (!browserActive)
     {
         UpdateSearchCountText(visibleCount, totalCount, 0);
     }
