@@ -1132,7 +1132,7 @@ MyGUI::ComboBox* SyncCraftingSortCombo(
     {
         const CraftingRecipeSortMode mode = static_cast<CraftingRecipeSortMode>(i);
         const CraftingRecipeSortStat stat = GetCraftingRecipeSortStat(mode);
-        const bool supported = stat == CraftingSortStatNone
+        const bool supported = stat == CraftingSortStatNone || IsCraftingValueOrTimeSortStat(stat)
             || (stat == CraftingSortStatCoverage ? hasCoveragePart
                 : (IsCraftingWeaponSortStat(stat) ? hasMeleeWeapons : hasArmor));
         if (!supported)

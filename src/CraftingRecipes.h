@@ -58,6 +58,6 @@ unsigned long long GetCraftingRecipeRevision();
 long GetResearchRowsRevision();
 std::size_t GetAvailableCraftingRecipeCount();
 bool TryGetCraftingRecipeCategory(MyGUI::Widget* button, CraftingRecipeCategory& category);
-bool TryGetCraftingRecipeSortValue(MyGUI::Widget* button, CraftingRecipeSortStat stat, float& value);
+bool TryGetCraftingRecipeSortValue(MyGUI::Widget* button, CraftingRecipeSortStat stat, double& value);
 void AddCraftingCoverageParts(MyGUI::Widget* button, CraftingCoveragePartOptions& parts);
 bool TryGetCraftingCoveragePercent(MyGUI::Widget* button, const std::string& partId, float& percent);

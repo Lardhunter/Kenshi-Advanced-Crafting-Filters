@@ -23,6 +23,14 @@ enum CraftingRecipeSortMode
     CraftingRecipeSortArmorPenetrationAscending,
     CraftingRecipeSortCoverageDescending,
     CraftingRecipeSortCoverageAscending,
+    CraftingRecipeSortItemValueDescending,
+    CraftingRecipeSortItemValueAscending,
+    CraftingRecipeSortSellValueDescending,
+    CraftingRecipeSortSellValueAscending,
+    CraftingRecipeSortTimeAscending,
+    CraftingRecipeSortTimeDescending,
+    CraftingRecipeSortSellValuePerHourDescending,
+    CraftingRecipeSortSellValuePerHourAscending,
     CraftingRecipeSortModeCount,
 };
 
@@ -36,21 +44,26 @@ enum CraftingRecipeSortStat
     CraftingSortStatBluntDamage,
     CraftingSortStatArmorPenetration,
     CraftingSortStatCoverage,
+    CraftingSortStatItemValue,
+    CraftingSortStatSellValue,
+    CraftingSortStatTime,
+    CraftingSortStatSellValuePerHour,
     CraftingSortStatCount,
 };
 
 struct CraftingRecipeSortRow
 {
     CraftingRecipeSortRow(std::size_t rowIndex, const std::string& sortName)
-        : index(rowIndex), name(sortName), value(0.0f), hasValue(false) {}
+        : index(rowIndex), name(sortName), value(0.0), hasValue(false) {}
 
     std::size_t index;
     std::string name;
-    float value;
+    double value;
     bool hasValue;
 };
 
 const char* GetCraftingRecipeSortLabel(CraftingRecipeSortMode mode);
 CraftingRecipeSortStat GetCraftingRecipeSortStat(CraftingRecipeSortMode mode);
 bool IsCraftingWeaponSortStat(CraftingRecipeSortStat stat);
+bool IsCraftingValueOrTimeSortStat(CraftingRecipeSortStat stat);
 void SortCraftingRecipeRows(std::vector<CraftingRecipeSortRow>& rows, CraftingRecipeSortMode mode);

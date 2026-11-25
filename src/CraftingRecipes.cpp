@@ -52,24 +52,25 @@ typedef std::map<std::string, std::pair<std::string, int> > ArmorCoverage;
 
 struct RecipeSortValue
 {
-    RecipeSortValue() : available(false), value(0.0f) {}
+    RecipeSortValue() : available(false), value(0.0) {}
 
     bool available;
-    float value;
+    double value;
 };
 
 struct RecipeRecord
 {
-    explicit RecipeRecord(const CraftingRecipeCategory& category)
-        : category(category), previewChecked(false) {}
+    RecipeRecord(const CraftingRecipeCategory& category, itemType outputType)
+        : category(category), outputType(outputType), previewChecked(false) {}
 
-    void SetSortValue(CraftingRecipeSortStat stat, float value)
+    void SetSortValue(CraftingRecipeSortStat stat, double value)
     {
         sortValues[stat].available = _finite(value) != 0;
         sortValues[stat].value = value;
     }
 
     CraftingRecipeCategory category;
+    itemType outputType;
     bool previewChecked;
     RecipeSortValue sortValues[CraftingSortStatCount];
     ArmorCoverage coverage;
@@ -179,17 +180,17 @@ void ReadArmorCoverage(const GameData& armor, GameDataContainer& data, ArmorCove
 void ReadRecipePreview(GameWorld& world, const RecipeId& id, RecipeRecord& recipe)
 {
     recipe.previewChecked = true;
-    const bool isWeapon = recipe.category.supportsWeaponStats;
-    const itemType outputType = isWeapon ? WEAPON : ARMOUR;
-    GameData* output = world.gamedata.getData(id.first, outputType);
+    GameData* output = world.gamedata.getData(id.first, recipe.outputType);
     GameData* variant = id.second.empty() ? 0 : world.gamedata.getData(id.second);
-    if (output == 0 || output->type != outputType || (!id.second.empty() && variant == 0))
+    if (output == 0 || output->type != recipe.outputType || (!id.second.empty() && variant == 0))
     {
         return;
     }
 
     GameData* factoryData = output;
-    int levelOverride = kStandardGradePreviewLevel;
+    const bool isWeapon = output->type == WEAPON;
+    const bool isArmor = output->type == ARMOUR;
+    const int levelOverride = isArmor ? kStandardGradePreviewLevel : 0;
     if (isWeapon)
     {
         // The weapon description uses PLAYER_WEAPONS and the exact recipe model,
@@ -203,7 +204,6 @@ void ReadRecipePreview(GameWorld& world, const RecipeId& id, RecipeRecord& recip
         {
             return;
         }
-        levelOverride = 0;
     }
 
     // Match the crafting description's detached preview and cleanup.
@@ -213,6 +213,28 @@ void ReadRecipePreview(GameWorld& world, const RecipeId& id, RecipeRecord& recip
     if (preview == 0)
     {
         return;
+    }
+
+    // These are the same numeric calls used to display Value, Sell value and
+    // Estimated Craft Time. Compare the unrounded hours and the unit prices.
+    const int itemValue = preview->getValueSingle(false);
+    const int sellValue = preview->getValueSingle(true);
+    const float craftHours = preview->getCraftTime();
+    if (itemValue >= 0)
+    {
+        recipe.SetSortValue(CraftingSortStatItemValue, itemValue);
+    }
+    if (sellValue >= 0)
+    {
+        recipe.SetSortValue(CraftingSortStatSellValue, sellValue);
+    }
+    if (_finite(craftHours) && craftHours >= 0.0f)
+    {
+        recipe.SetSortValue(CraftingSortStatTime, craftHours);
+        if (craftHours > 0.0f && sellValue >= 0)
+        {
+            recipe.SetSortValue(CraftingSortStatSellValuePerHour, static_cast<double>(sellValue) / craftHours);
+        }
     }
 
     if (isWeapon)
@@ -229,7 +251,7 @@ void ReadRecipePreview(GameWorld& world, const RecipeId& id, RecipeRecord& recip
                 penetration != output->fdata.end() ? penetration->second : 0.0f);
         }
     }
-    else
+    else if (isArmor)
     {
         const Armour* armor = preview->isArmour();
         if (armor != 0)
@@ -264,7 +286,7 @@ void OnGetAvailableCrafts(CraftingBuilding* station, lektor<GameDataGroup>& avai
             if (recipe.g1 != 0 && !recipe.g1->stringID.empty())
             {
                 const RecipeId id(recipe.g1->stringID, recipe.g2 != 0 ? recipe.g2->stringID : "");
-                RecipeRecord record(ReadRecipeCategory(*recipe.g1));
+                RecipeRecord record(ReadRecipeCategory(*recipe.g1), recipe.g1->type);
                 if (record.category.kind == CraftingRecipeCategory::Armor && ou != 0)
                 {
                     ReadArmorCoverage(*recipe.g1, ou->gamedata, record.coverage);
@@ -446,9 +468,10 @@ bool TryGetCraftingRecipeCategory(MyGUI::Widget* button, CraftingRecipeCategory&
     return true;
 }
 
-bool TryGetCraftingRecipeSortValue(MyGUI::Widget* button, CraftingRecipeSortStat stat, float& value)
+bool TryGetCraftingRecipeSortValue(MyGUI::Widget* button, CraftingRecipeSortStat stat, double& value)
 {
-    if (button == 0 || stat <= CraftingSortStatNone || stat >= CraftingSortStatCoverage || !IsCraftingUiThread())
+    if (button == 0 || stat <= CraftingSortStatNone || stat >= CraftingSortStatCount
+        || stat == CraftingSortStatCoverage || !IsCraftingUiThread())
     {
         return false;
     }
@@ -460,8 +483,9 @@ bool TryGetCraftingRecipeSortValue(MyGUI::Widget* button, CraftingRecipeSortStat
         return false;
     }
     RecipeRecord& recipe = found->second;
-    const bool applicable = IsCraftingWeaponSortStat(stat) ? recipe.category.supportsWeaponStats
-        : recipe.category.kind == CraftingRecipeCategory::Armor;
+    const bool applicable = IsCraftingValueOrTimeSortStat(stat)
+        || (IsCraftingWeaponSortStat(stat) ? recipe.category.supportsWeaponStats
+            : recipe.category.kind == CraftingRecipeCategory::Armor);
     if (!applicable)
     {
         return false;

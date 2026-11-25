@@ -30,6 +30,14 @@ const RecipeSortOption kSortOptions[] =
     { "Armor penetration (low)", CraftingSortStatArmorPenetration, false },
     { "Coverage (high)", CraftingSortStatCoverage, true },
     { "Coverage (low)", CraftingSortStatCoverage, false },
+    { "Item value (high)", CraftingSortStatItemValue, true },
+    { "Item value (low)", CraftingSortStatItemValue, false },
+    { "Sell value (high)", CraftingSortStatSellValue, true },
+    { "Sell value (low)", CraftingSortStatSellValue, false },
+    { "Craft time (fastest)", CraftingSortStatTime, false },
+    { "Craft time (slowest)", CraftingSortStatTime, true },
+    { "Unit sell value/hr (high)", CraftingSortStatSellValuePerHour, true },
+    { "Unit sell value/hr (low)", CraftingSortStatSellValuePerHour, false },
 };
 static_assert(sizeof(kSortOptions) / sizeof(kSortOptions[0]) == CraftingRecipeSortModeCount, "Sort options must match the mode enum");
 
@@ -90,6 +98,11 @@ bool IsCraftingWeaponSortStat(CraftingRecipeSortStat stat)
 {
     return stat == CraftingSortStatCutDamage || stat == CraftingSortStatBluntDamage
         || stat == CraftingSortStatArmorPenetration;
+}
+
+bool IsCraftingValueOrTimeSortStat(CraftingRecipeSortStat stat)
+{
+    return stat >= CraftingSortStatItemValue && stat <= CraftingSortStatSellValuePerHour;
 }
 
 void SortCraftingRecipeRows(std::vector<CraftingRecipeSortRow>& rows, CraftingRecipeSortMode mode)
