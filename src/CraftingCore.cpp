@@ -1,6 +1,7 @@
 #include "CraftingCore.h"
 
 #include <Debug.h>
+#include <core/Functions.h>
 
 #include <Windows.h>
 
@@ -287,6 +288,13 @@ void LogTraderConfigSnapshot(const char* prefix, const TraderConfigSnapshot& con
 TraderRuntimeState& TraderState()
 {
     return g_traderRuntimeState;
+}
+
+intptr_t ResolveKenshiLibExport(const char* name)
+{
+    const HMODULE module = GetModuleHandleW(L"KenshiLib.dll");
+    const FARPROC symbol = module != 0 ? GetProcAddress(module, name) : 0;
+    return symbol != 0 ? KenshiLib::GetRealAddress(reinterpret_cast<void*>(symbol)) : 0;
 }
 
 void LogInfoLine(const std::string& message)

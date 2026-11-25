@@ -78,6 +78,7 @@ ResearchListState g_observedResearchList;
 ResearchListState ReadResearchList(MyGUI::TabItem* tab)
 {
     ResearchListState state;
+    state.revision = GetResearchRowsRevision();
     ManagementScreen* screen = ManagementScreen::getSingleton();
     if (screen == 0 || !IsDescendantOf(tab, screen->tabs) || screen->availableList == 0)
     {
@@ -101,7 +102,6 @@ ResearchListState ReadResearchList(MyGUI::TabItem* tab)
     {
         state.selectedCategory = categories->getIndexSelected();
     }
-    state.revision = GetResearchRowsRevision();
     return state;
 }
 
@@ -339,13 +339,17 @@ void ApplyResearchSearch(MyGUI::TabItem* tab, bool forceShowAll)
 {
     const ResearchListState state = ReadResearchList(tab);
     g_observedResearchList = state;
+    const bool globalResults = !forceShowAll && UpdateResearchResultControls(state.revision);
     if (!state.visible && !forceShowAll)
     {
-        UpdateSearchCountText(0, 0, 0);
+        if (!globalResults)
+        {
+            UpdateSearchCountText(0, 0, 0);
+        }
         return;
     }
 
-    const std::string query = forceShowAll ? std::string() : GetNormalizedResearchSearchQuery();
+    const std::string query = forceShowAll || globalResults ? std::string() : GetNormalizedResearchSearchQuery();
     std::size_t visibleCount = 0;
     std::size_t totalCount = 0;
     std::vector<MyGUI::Widget*> widgets;
@@ -411,7 +415,10 @@ void ApplyResearchSearch(MyGUI::TabItem* tab, bool forceShowAll)
         visibleCount += originallyVisible && show ? 1 : 0;
     }
 
-    UpdateSearchCountText(visibleCount, totalCount, 0);
+    if (!globalResults)
+    {
+        UpdateSearchCountText(visibleCount, totalCount, 0);
+    }
 }
 
 void CollectCraftingRecipeWidgetsRecursive(

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -329,6 +331,7 @@ TraderRuntimeState& TraderState();
 
 void LogInfoLine(const std::string& message);
 void LogWarnLine(const std::string& message);
+intptr_t ResolveKenshiLibExport(const char* name);
 void LogErrorLine(const std::string& message);
 bool ShouldCompileVerboseDiagnostics();
 bool ShouldLogDebug();

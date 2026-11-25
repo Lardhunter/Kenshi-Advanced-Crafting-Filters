@@ -7,6 +7,7 @@
 #include "CraftingSearchPipeline.h"
 #include "CraftingSearchText.h"
 #include "CraftingWindowDetection.h"
+#include "ResearchFilters.h"
 
 #include <kenshi/Globals.h>
 #include <kenshi/InputHandler.h>
@@ -18,6 +19,7 @@
 #include <mygui/MyGUI_ILayer.h>
 #include <mygui/MyGUI_InputManager.h>
 #include <mygui/MyGUI_LayerManager.h>
+#include <mygui/MyGUI_ListBox.h>
 #include <mygui/MyGUI_RenderManager.h>
 #include <mygui/MyGUI_ResourceManager.h>
 #include <mygui/MyGUI_TabControl.h>
@@ -58,6 +60,9 @@ const char* kCraftingFilterContentName = "OTCS_FilterContent";
 const char* kCraftingCollapseButtonName = "OTCS_CollapseFilters";
 const char* kCraftingResizeGripName = "OTCS_ResizeFilters";
 const char* kCraftingHeaderName = "OTCS_FilterHeader";
+const char* kResearchTypeName = "OTCS_ResearchType";
+const char* kResearchTypeLabel = "OTCS_ResearchTypeLabel";
+const char* kResearchResultsName = "OTCS_ResearchResults";
 const int kPanelPadding = 8;
 const int kPanelGap = 6;
 const int kPanelDefaultWidth = 350;
@@ -72,6 +77,7 @@ const int kSearchCountWidth = 96;
 const int kResizeGripSize = 22;
 const int kClearFiltersWidth = 114;
 const int kClearFiltersHeight = 26;
+const int kResearchResultsHeight = 112;
 
 struct FloatingRecipePanel : MyGUI::IUnlinkWidget
 {
@@ -123,12 +129,17 @@ bool g_syncingRecipeFilters = false;
 
 struct ResearchFilterState
 {
+    ResearchFilterState() : type(ResearchTypeFilterAutomatic) {}
+
     SearchPanelGeometry geometry;
     std::string queryRaw;
     std::string queryNormalized;
+    ResearchTypeFilter type;
+    std::string selectedId;
 };
 
 ResearchFilterState g_researchFilters;
+bool g_syncingResearchFilters = false;
 
 SearchPanelGeometry& PanelGeometry(OverviewFilterMode mode)
 {
@@ -1411,10 +1422,14 @@ void LayoutFloatingPanel()
     MyGUI::ComboBox* armorClass = FindRecipeCombo(content, kCraftingArmorClassComboName);
     MyGUI::ComboBox* coveragePart = FindRecipeCombo(content, kCoveragePartComboName);
     MyGUI::ComboBox* sort = FindRecipeCombo(content, kCraftingSortComboName);
+    MyGUI::ComboBox* researchType = FindRecipeCombo(content, kResearchTypeName);
+    MyGUI::Widget* researchResults = FindNamedDescendantRecursive(content, kResearchResultsName, false);
     const bool showCategory = category != 0 && category->getVisible();
     const bool showArmorClass = armorClass != 0 && armorClass->getVisible();
     const bool showCoverage = coveragePart != 0 && coveragePart->getVisible();
     const bool showSort = sort != 0 && sort->getVisible();
+    const bool showResearchType = researchType != 0 && researchType->getVisible();
+    const bool showResearchResults = researchResults != 0 && researchResults->getVisible();
     MyGUI::Widget* percent = FindNamedDescendantRecursive(content, kCoveragePercentName, false);
     MyGUI::Widget* percentLabel = FindNamedDescendantRecursive(content, kCoveragePercentLabelName, false);
     const bool showThreshold = showCoverage && percent != 0 && percentLabel != 0 && percent->getVisible();
@@ -1428,7 +1443,8 @@ void LayoutFloatingPanel()
     // Reserve the row when selecting All Recipes can make the Class dropdown reappear.
     const bool reserveArmorClass = showArmorClass || g_recipePanel.hasArmorClassOptions;
     g_recipePanel.minimumHeight = FilterPanelMinimumHeight(
-        1 + showCategory + reserveArmorClass + showCoverage + showThreshold + showSort);
+        1 + showCategory + reserveArmorClass + showCoverage + showThreshold + showSort + showResearchType)
+        + (showResearchResults ? kResearchResultsHeight : 0);
     const SearchPanelGeometry& geometry = PanelGeometry(g_recipePanel.mode);
     const MyGUI::IntSize expandedSize = ResolveExpandedPanelSize(
         view, geometry, g_recipePanel.minimumWidth, g_recipePanel.minimumHeight);
@@ -1470,14 +1486,163 @@ void LayoutFloatingPanel()
         rowTop += rowHeight + kPanelGap;
     }
     LayoutFilterRow(content, sort, kCraftingSortLabelName, rowWidth, rowHeight, rowTop);
+    LayoutFilterRow(content, researchType, kResearchTypeLabel, rowWidth, rowHeight, rowTop);
 
     MyGUI::Widget* clearFilters = FindNamedDescendantRecursive(content, kClearFiltersName, false);
     clearFilters->setCoord(kPanelPadding, content->getHeight() - kPanelPadding - kClearFiltersHeight,
         kClearFiltersWidth, kClearFiltersHeight);
+    if (showResearchResults)
+    {
+        researchResults->setCoord(kPanelPadding, rowTop, rowWidth, clearFilters->getTop() - rowTop - kPanelGap);
+    }
     MyGUI::Widget* grip = FindNamedDescendantRecursive(content, kCraftingResizeGripName, false);
     grip->setCoord(content->getWidth() - kResizeGripSize - 3, content->getHeight() - kResizeGripSize - 3,
         kResizeGripSize, kResizeGripSize);
 }
+}
+
+namespace
+{
+void OnResearchTypeChanged(MyGUI::ComboBox* combo, std::size_t index)
+{
+    if (!g_syncingResearchFilters && index < combo->getItemCount())
+    {
+        const ResearchTypeFilter* type = combo->getItemDataAt<ResearchTypeFilter>(index, false);
+        if (type != 0 && g_researchFilters.type != *type)
+        {
+            g_researchFilters.type = *type;
+            g_researchFilters.selectedId.clear();
+            MarkSearchFilterDirty("research_type_changed");
+        }
+    }
+}
+
+void OnResearchResultSelected(MyGUI::ListBox* list, std::size_t index)
+{
+    if (!g_syncingResearchFilters && index < list->getItemCount())
+    {
+        const ResearchEntry* entry = list->getItemDataAt<ResearchEntry>(index, false);
+        if (entry != 0)
+        {
+            g_researchFilters.selectedId = entry->id;
+            OpenNativeResearchEntry(GetResearchSearchTab(), *entry);
+        }
+    }
+}
+
+MyGUI::ComboBox* SyncResearchTypeCombo(MyGUI::Widget* content)
+{
+    MyGUI::ComboBox* combo = FindRecipeCombo(content, kResearchTypeName);
+    if (combo == 0)
+    {
+        combo = CreateRecipeCombo(content, kResearchTypeName, &OnResearchTypeChanged);
+        if (combo == 0)
+        {
+            return 0;
+        }
+        combo->addItem("Auto (All Types on search)", MyGUI::Any(ResearchTypeFilterAutomatic));
+        combo->addItem("All Types", MyGUI::Any(ResearchTypeFilterAll));
+        combo->addItem("Current Type", MyGUI::Any(ResearchTypeFilterCurrent));
+    }
+    const std::size_t index = static_cast<std::size_t>(g_researchFilters.type);
+    if (combo->getIndexSelected() != index)
+    {
+        combo->setIndexSelected(index);
+    }
+    return combo;
+}
+
+void SyncResearchResults(MyGUI::ListBox* list, const ResearchEntries& results, const char* empty)
+{
+    if (results.empty())
+    {
+        if (list->getItemCount() != 1 || list->getItemNameAt(0).asUTF8() != empty)
+        {
+            list->removeAllItems();
+            list->addItem(empty);
+        }
+        list->setEnabled(false);
+        return;
+    }
+
+    bool same = list->getItemCount() == results.size();
+    for (std::size_t i = 0; same && i < results.size(); ++i)
+    {
+        const ResearchEntry* old = list->getItemDataAt<ResearchEntry>(i, false);
+        const ResearchEntry& entry = results[i];
+        same = old != 0 && old->id == entry.id && old->name == entry.name && old->category == entry.category;
+    }
+
+    if (!same)
+    {
+        list->removeAllItems();
+        for (std::size_t i = 0; i < results.size(); ++i)
+        {
+            const ResearchEntry& entry = results[i];
+            list->addItem(entry.name + " [" + entry.category + "]", MyGUI::Any(entry));
+            if (entry.id == g_researchFilters.selectedId)
+            {
+                list->setIndexSelected(i);
+            }
+        }
+    }
+    list->setEnabled(true);
+}
+}
+
+bool UpdateResearchResultControls(long revision)
+{
+    MyGUI::Widget* content = g_recipePanel.content;
+    if (content == 0)
+    {
+        return false;
+    }
+
+    g_syncingResearchFilters = true;
+    MyGUI::ComboBox* type = SyncResearchTypeCombo(content);
+    SetFilterLabel(content, kResearchTypeLabel, "Type", type != 0);
+    MyGUI::ComboBox* combos[] = { type };
+    g_recipePanel.minimumWidth = MeasureRecipeFilterWidth(content, combos, 1);
+
+    const std::string& query = g_researchFilters.queryNormalized;
+    const bool wantsGlobal = g_researchFilters.type == ResearchTypeFilterAll
+        || (g_researchFilters.type == ResearchTypeFilterAutomatic && !query.empty());
+    MyGUI::Widget* widget = FindNamedDescendantRecursive(content, kResearchResultsName, false);
+    MyGUI::ListBox* list = widget != 0 ? widget->castType<MyGUI::ListBox>(false) : 0;
+    if (wantsGlobal && list == 0)
+    {
+        list = content->createWidget<MyGUI::ListBox>("Kenshi_ListBoxEmpty", MyGUI::IntCoord(),
+            MyGUI::Align::Default, kResearchResultsName);
+        if (list != 0)
+        {
+            list->eventListChangePosition += MyGUI::newDelegate(&OnResearchResultSelected);
+        }
+    }
+
+    const ResearchEntries* catalog = wantsGlobal && list != 0 ? GetResearchCatalog(revision) : 0;
+    if (list != 0)
+    {
+        list->setVisible(wantsGlobal);
+        if (wantsGlobal)
+        {
+            ResearchEntries results;
+            if (catalog != 0)
+            {
+                for (ResearchEntries::const_iterator it = catalog->begin(); it != catalog->end(); ++it)
+                {
+                    if (query.empty() || it->normalizedName.find(query) != std::string::npos)
+                    {
+                        results.push_back(*it);
+                    }
+                }
+                UpdateSearchCountText(results.size(), catalog->size(), 0);
+            }
+            SyncResearchResults(list, results, catalog != 0 ? "No matching research" : "All Types search unavailable");
+        }
+    }
+    LayoutFloatingPanel();
+    g_syncingResearchFilters = false;
+    return catalog != 0;
 }
 
 CraftingCategorySelection UpdateCraftingCategoryControls(
@@ -1948,12 +2113,12 @@ void OnClearFiltersClicked(MyGUI::Widget*)
         return;
     }
 
+    // Keep the expanded size when a reset removes controls from either tab.
+    SearchPanelGeometry& geometry = PanelGeometry(g_recipePanel.mode);
+    geometry.width = (std::max)(geometry.width, g_recipePanel.root->getWidth());
+    geometry.height = (std::max)(geometry.height, g_recipePanel.root->getHeight());
     if (g_recipePanel.mode == OverviewFilterCrafting)
     {
-        // Keep the expanded size when resetting coverage removes the threshold row.
-        SearchPanelGeometry& geometry = PanelGeometry(OverviewFilterCrafting);
-        geometry.width = (std::max)(geometry.width, g_recipePanel.root->getWidth());
-        geometry.height = (std::max)(geometry.height, g_recipePanel.root->getHeight());
         g_filterPreferences = CraftingCategorySelection();
 
         MyGUI::Widget* widget = FindNamedDescendantRecursive(g_recipePanel.content, kCoveragePercentName, false);
@@ -1964,6 +2129,11 @@ void OnClearFiltersClicked(MyGUI::Widget*)
             threshold->setOnlyText("0");
             g_syncingRecipeFilters = false;
         }
+    }
+    else if (g_recipePanel.mode == OverviewFilterResearch)
+    {
+        g_researchFilters.type = ResearchTypeFilterAutomatic;
+        g_researchFilters.selectedId.clear();
     }
 
     SetSearchQueryAndRefresh(searchEdit, "", "clear_filters", false);

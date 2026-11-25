@@ -108,13 +108,6 @@ bool IsCraftingUiThread()
         == static_cast<LONG>(GetCurrentThreadId());
 }
 
-intptr_t ResolveKenshiLibExport(const char* name)
-{
-    const HMODULE module = GetModuleHandleW(L"KenshiLib.dll");
-    const FARPROC symbol = module != 0 ? GetProcAddress(module, name) : 0;
-    return symbol != 0 ? KenshiLib::GetRealAddress(reinterpret_cast<void*>(symbol)) : 0;
-}
-
 LONG GetResearchRevision()
 {
     return InterlockedCompareExchange(&g_researchRevision, 0, 0);

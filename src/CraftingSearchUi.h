@@ -58,6 +58,7 @@ MyGUI::TextBox* FindSearchCountTextBox();
 MyGUI::Widget* ResolveTraderParentFromControlsContainer();
 MyGUI::TabItem* GetResearchSearchTab();
 const std::string& GetNormalizedResearchSearchQuery();
+bool UpdateResearchResultControls(long revision);
 void FocusSearchEdit(MyGUI::EditBox* searchEdit, const char* reason);
 void FocusSearchEditIfRequested(MyGUI::EditBox* searchEdit, const char* reason);
 bool IsSearchEditFocused(MyGUI::EditBox* searchEdit);
