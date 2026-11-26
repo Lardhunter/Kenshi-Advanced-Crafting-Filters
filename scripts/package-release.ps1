@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoDir = Split-Path -Parent $PSScriptRoot
 $modName = 'Kenshi-Advanced-Crafting-Filters'
+$archiveName = 'Kenshi-Advanced-Filters'
 $version = (Get-Content -LiteralPath (Join-Path $repoDir 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') {
     throw 'VERSION must contain the numeric release version.'
@@ -17,7 +18,7 @@ $BuiltDll = (Resolve-Path -LiteralPath $BuiltDll).ProviderPath
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).ProviderPath
 $templateDir = Join-Path $repoDir 'Organize-the-Crafting-Stations'
 $modDir = Join-Path $OutputDirectory $modName
-$archive = Join-Path $OutputDirectory "$modName-v$version.zip"
+$archive = Join-Path $OutputDirectory "$archiveName-v$version.zip"
 if ((Test-Path -LiteralPath $modDir) -or (Test-Path -LiteralPath $archive)) {
     throw 'The staged mod directory or release ZIP already exists.'
 }

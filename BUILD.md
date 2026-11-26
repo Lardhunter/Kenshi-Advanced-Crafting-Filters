@@ -1,4 +1,4 @@
-# Building Kenshi Advanced Crafting Filters v1.0.1
+# Building Kenshi Advanced Filters v2.0.0
 
 Build this source with MSVC 2010 SP1 (v100), Release, x64. The release build uses the x86-hosted x64 compiler, the Visual C++ 2010 MSBuild targets, and Windows SDK 7.1 headers and x64 libraries. A compatible MSBuild host runs the project. The build uses the existing Windows PowerShell and toolchain installation.
 
@@ -20,24 +20,20 @@ $buildPaths = @{
     WindowsSdkDir        = 'C:\Program Files\Microsoft SDKs\Windows\v7.1'
     KenshiLibDir         = 'C:\Dependencies\KenshiLib_Examples_deps\KenshiLib'
     BoostDir             = 'C:\Dependencies\KenshiLib_Examples_deps\boost_1_60_0'
-    OutputDirectory      = 'C:\Builds\Kenshi-Advanced-Crafting-Filters-v1.0.1-build'
+    OutputDirectory      = 'C:\Builds\Kenshi-Advanced-Filters-v2.0.0-build'
 }
 .\scripts\build-release-v100.ps1 @buildPaths
 ```
 
 The build writes `bin\Organize-the-Crafting-Stations.dll` and `build.log` under the output directory. The v100 Release targets omit PDB generation. To verify the DLL, use `dumpbin /headers` for machine `8664 (x64)` and `dumpbin /exports` for `?startPlugin@@YAXXZ`. `dumpbin /dependents` lists the game and runtime DLLs.
 
-Use a separate existing release output directory for packaging. The packaging script gives the copied DLL its release name and verifies the SHA-256 before creating the ZIP.
+Use a separate existing release output directory for packaging. The packaging script verifies the staged DLL's SHA-256 and creates `Kenshi-Advanced-Filters-v2.0.0.zip`. The mod folder, `.mod` file, and DLL inside retain their `Kenshi-Advanced-Crafting-Filters` names for installation compatibility.
 
 ```powershell
 $builtDll = Join-Path $buildPaths.OutputDirectory 'bin\Organize-the-Crafting-Stations.dll'
-.\scripts\package-release.ps1 -BuiltDll $builtDll -OutputDirectory 'C:\Releases\v1.0.1'
+.\scripts\package-release.ps1 -BuiltDll $builtDll -OutputDirectory 'C:\Releases\v2.0.0'
 ```
 
 ## Release provenance
 
-The in-game v1.0.1 test used the runtime source at `62d92c42e66a0244ba9ddd4c36f171d23f0a77fe`. The release uses the same runtime source and build scripts. The installed test DLL and saved test build had the following SHA-256.
-
-```text
-1BCB67944EF0DB19CD36E81CAF8D9F373B4629BA7B51EC44C93A78FF0E9A7A6E
-```
+The v2.0.0 tag identifies the source archive used for the final build. The release retains the in-game-tested runtime source at `3f35ee81a2ceb853023a0b2ba4791706d752fb48` and updates the version, documentation, and installation ZIP name. Build paths and linker timestamps can affect the DLL checksum when rebuilding from source.

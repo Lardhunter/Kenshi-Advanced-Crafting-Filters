@@ -1,14 +1,16 @@
 # Attribution and source notice
 
-**Kenshi Advanced Crafting Filters** is a modified edition of **Organize the Crafting Stations** by Emkej and its contributors. It is distributed under the GNU General Public License, version 3, as set out in the accompanying `LICENSE`. The upstream license text is reproduced in full. [Original project](https://github.com/Emkej/Organize-the-Crafting-Stations)
+**Kenshi Advanced Filters**, formerly **Kenshi Advanced Crafting Filters**, is a modified edition of **Organize the Crafting Stations** by Emkej and its contributors. It is distributed under the GNU General Public License, version 3, as set out in the accompanying `LICENSE`. The upstream license text is reproduced in full. [Original project](https://github.com/Emkej/Organize-the-Crafting-Stations)
 
 The modifications recorded for this edition on 2026-11-22 add the floating filter panel, equipment and body-part filters, and recipe sorting. The upstream search and integration code, authorship records, and license remain part of the project history. The Mod Hub adapter was inherited from the upstream project and uses Emkej's Emkejs-Mod-Core SDK. [Emkejs-Mod-Core](https://github.com/Emkej/Emkejs-Mod-Core)
 
 Version 1.0.1, dated 2026-11-23, updates the floating panel's visibility, window order, and filter persistence.
 
+Version 2.0.0 adds the independent Research panel, cross-category search, learned research browsing, and recipe value and craft time sorting.
+
 ## Corresponding source
 
-Distribute `Kenshi-Advanced-Crafting-Filters-v1.0.1-source.zip` alongside `Kenshi-Advanced-Crafting-Filters-v1.0.1.zip`. The source bundle includes the plugin sources, project files, mod template, and scripts to build and package this version. When offering the binary for download, make its corresponding source available in the same way at no additional charge. [GNU GPLv3, section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6)
+Distribute `Kenshi-Advanced-Filters-v2.0.0-source.zip` alongside `Kenshi-Advanced-Filters-v2.0.0.zip`. The source bundle includes the plugin sources, project files, mod template, and scripts to build and package this version. When offering the binary for download, make its corresponding source available in the same way at no additional charge. [GNU GPLv3, section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6)
 
 ## External components
 
